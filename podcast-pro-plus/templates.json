@@ -1,0 +1,115 @@
+{
+  "522c767a-c959-4895-93c6-440a0a752d93": {
+    "id": "522c767a-c959-4895-93c6-440a0a752d93",
+    "user_id": "53097195-7ed3-4c91-aeca-11f6f47d13f1",
+    "name": "Cinema IRL Main",
+    "segments": [
+      {
+        "id": "fe3d0fb3-d287-448e-8c73-24d44695b10e",
+        "segment_type": "intro",
+        "source": {
+          "source_type": "static",
+          "filename": "Intro1.mp3"
+        }
+      },
+      {
+        "id": "29bac657-524d-4c2d-8624-3b2104114ca2",
+        "segment_type": "intro",
+        "source": {
+          "source_type": "tts",
+          "script": "",
+          "voice_id": "19B4gjtpL5m876wS3Dfg"
+        }
+      },
+      {
+        "id": "a9ac1fd7-0c33-4ff2-be63-538309d90269",
+        "segment_type": "intro",
+        "source": {
+          "source_type": "static",
+          "filename": "Intro2.mp3"
+        }
+      },
+      {
+        "id": "c925879a-8c63-4935-af0a-a9f2f6ebff30",
+        "segment_type": "content",
+        "source": {
+          "source_type": "static",
+          "filename": "placeholder.mp3"
+        }
+      },
+      {
+        "id": "732b10f4-357d-4e55-9c33-1c316799b996",
+        "segment_type": "outro",
+        "source": {
+          "source_type": "static",
+          "filename": "Outro.mp3"
+        }
+      }
+    ],
+    "background_music_rules": [
+      {
+        "id": "d104f8c7-cb87-4dec-aab6-9a9ad5d8eadf",
+        "music_filename": "BGMusic.mp3",
+        "apply_to_segments": [],
+        "start_offset_s": 3.0,
+        "end_offset_s": 2.0,
+        "fade_in_s": 2.0,
+        "fade_out_s": 3.0,
+        "volume_db": -3
+      }
+    ],
+    "timing": {
+      "content_start_offset_s": -2.0,
+      "outro_start_offset_s": -10.0
+    }
+  },
+  "af60e6fc-1f50-4b62-b14a-5347cb8bde47": {
+    "id": "af60e6fc-1f50-4b62-b14a-5347cb8bde47",
+    "user_id": "7fbfadab-d059-4e45-b5a2-e60196e665fc",
+    "name": "CIRL",
+    "segments": [
+      {
+        "id": "2d5d499d-82be-492e-86e4-81c01aba041c",
+        "segment_type": "intro",
+        "source": {
+          "source_type": "static",
+          "filename": "Intro1.mp3"
+        }
+      },
+      {
+        "id": "3018453a-c2af-4ebe-85f0-33c0a8392197",
+        "segment_type": "content",
+        "source": {
+          "source_type": "static",
+          "filename": "placeholder.mp3"
+        }
+      },
+      {
+        "id": "1969df92-2b03-430b-982c-8ebf3a08bc64",
+        "segment_type": "outro",
+        "source": {
+          "source_type": "static",
+          "filename": "Outro.mp3"
+        }
+      }
+    ],
+    "background_music_rules": [
+      {
+        "id": "843454d7-9b48-4c76-9776-5edf49edd10b",
+        "music_filename": "BGMusic",
+        "apply_to_segments": [
+          "intro"
+        ],
+        "start_offset_s": 3.0,
+        "end_offset_s": 2.0,
+        "fade_in_s": 2.0,
+        "fade_out_s": 3.0,
+        "volume_db": -3
+      }
+    ],
+    "timing": {
+      "content_start_offset_s": -2.0,
+      "outro_start_offset_s": -10.0
+    }
+  }
+}

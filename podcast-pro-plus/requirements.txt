@@ -1,0 +1,14 @@
+fastapi[all]
+python-dotenv[cli]
+openai
+pydantic-settings
+pydub
+PyAudio
+thefuzz[speedup]
+elevenlabs
+requests
+pytz
+sqlmodel
+passlib[bcrypt]
+python-jose[cryptography]
+Authlib
