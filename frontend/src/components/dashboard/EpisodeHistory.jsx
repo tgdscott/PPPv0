@@ -1,8 +1,8 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft,
   Loader2,
@@ -11,9 +11,9 @@ import {
   Share2,
   Copy,
   Check,
-} from "lucide-react"
-import { useState, useEffect } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 export default function EpisodeHistory({ onBack, token }) {
   const [episodes, setEpisodes] = useState([]);
@@ -33,6 +33,8 @@ export default function EpisodeHistory({ onBack, token }) {
         });
         if (!response.ok) throw new Error('Failed to fetch episode history.');
         const data = await response.json();
+        // Sort episodes by publish date, newest first
+        data.sort((a, b) => new Date(b.publish_at) - new Date(a.publish_at));
         setEpisodes(data);
       } catch (err) {
         setError(err.message);
@@ -59,19 +61,13 @@ export default function EpisodeHistory({ onBack, token }) {
   };
 
   const handleDownload = (episode) => {
-    if (episode.status === 'processed' && episode.final_audio_path) {
-      try {
-        const downloadUrl = `/${episode.final_audio_path}`;
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `${episode.title || 'episode'}.mp3`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      } catch (err) {
-        console.error('Download error:', err);
-      }
-    }
+    // This logic may need to change if the audio is hosted externally
+    const link = document.createElement('a');
+    link.href = episode.final_audio_path;
+    link.download = `${episode.title || 'episode'}.mp3`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handlePlay = (episodeId) => {
@@ -126,15 +122,25 @@ export default function EpisodeHistory({ onBack, token }) {
                 episodes.map(episode => (
                   <Card key={episode.id} className="hover:bg-gray-50 transition-all duration-200">
                     <CardContent className="p-4 flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold truncate text-gray-900">{episode.title}</p>
-                        <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                          <span>{new Date(episode.processed_at).toLocaleDateString()}</span>
-                          {getStatusBadge(episode.status)}
+                      {/* --- THIS IS THE FIX for the Cover Art --- */}
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        {episode.cover_path && (
+                          <img 
+                            src={episode.cover_path} 
+                            alt={`${episode.title} cover`} 
+                            className="w-16 h-16 rounded-md object-cover" 
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold truncate text-gray-900">{episode.title}</p>
+                          <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                            <span>{new Date(episode.publish_at || episode.processed_at).toLocaleDateString()}</span>
+                            {getStatusBadge(episode.status)}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {episode.status === 'processed' && episode.final_audio_path && (
+                        {episode.final_audio_path && (
                           <>
                             <Button
                               variant="ghost"
@@ -173,7 +179,7 @@ export default function EpisodeHistory({ onBack, token }) {
                         <audio
                           controls
                           className="w-full h-8"
-                          src={`/${episode.final_audio_path}`}
+                          src={episode.final_audio_path}
                           autoPlay
                           onPause={() => setPlayingId(null)}
                           onEnded={() => setPlayingId(null)}
@@ -186,7 +192,7 @@ export default function EpisodeHistory({ onBack, token }) {
                 ))
               ) : (
                 <p className="text-gray-500 text-center py-8">
-                  No episodes found. Create your first episode to see it here!
+                  No episodes found. Import a podcast to see its history here!
                 </p>
               )}
             </div>

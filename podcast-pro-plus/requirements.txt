@@ -12,3 +12,4 @@ sqlmodel
 passlib[bcrypt]
 python-jose[cryptography]
 Authlib
+feedparser

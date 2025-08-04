@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # --- NEW: Admin User Setting ---
     ADMIN_EMAIL: str = "admin@example.com" # Default value if not in .env
 
+    # --- THIS IS THE ONLY ADDED LINE ---
+    SESSION_SECRET_KEY: str = "a_very_secret_key_that_should_be_changed"
+
     class Config:
         env_file = ".env"
 

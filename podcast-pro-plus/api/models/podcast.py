@@ -5,10 +5,8 @@ from uuid import UUID, uuid4
 import json
 from enum import Enum
 
-# Import the User model to create a relationship
 from .user import User
 
-# --- Enums for Categories ---
 class MediaCategory(str, Enum):
     intro = "intro"
     outro = "outro"
@@ -26,22 +24,19 @@ class EpisodeStatus(str, Enum):
     published = "published"
     error = "error"
 
-# --- NEW: Base model for Podcast ---
 class PodcastBase(SQLModel):
     name: str
     description: Optional[str] = None
     cover_path: Optional[str] = None
+    rss_url: Optional[str] = Field(default=None, index=True)
 
-# --- Podcast (Show) Model ---
 class Podcast(PodcastBase, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     user_id: UUID = Field(foreign_key="user.id")
     user: Optional[User] = Relationship()
     
-    episodes: List["Episode"] = Relationship(back_populates="podcast")
+    episodes: List["Episode"] = Relationship(back_populates="podcast", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
 
-
-# --- Schemas for complex JSON data (not DB tables) ---
 class StaticSegmentSource(SQLModel):
     source_type: Literal["static"] = "static"
     filename: str
@@ -59,7 +54,7 @@ class TTSSegmentSource(SQLModel):
 class TemplateSegment(SQLModel):
     id: UUID = Field(default_factory=uuid4)
     segment_type: Literal["intro", "outro", "commercial", "sound_effect", "transition", "content"]
-    source: Union[StaticSegmentSource, AIGeneratedSegmentSource, TTSSegmentSource] = Field(..., discriminator='source_type')
+    source: Union[StaticSegmentSource, AIGeneratedSegmentSource, TTSSegmentSource]
 
 class BackgroundMusicRule(SQLModel):
     id: UUID = Field(default_factory=uuid4)
@@ -96,44 +91,33 @@ class PodcastTemplatePublic(PodcastTemplateCreate):
     id: UUID
     user_id: UUID
 
-# --- Media Library Models ---
 class MediaItem(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
+    friendly_name: Optional[str] = Field(default=None)
     category: MediaCategory = Field(default=MediaCategory.music)
     filename: str
-    content_type: str
-    filesize: int
+    content_type: Optional[str] = None
+    filesize: Optional[int] = None
     user_id: UUID = Field(foreign_key="user.id")
     user: Optional[User] = Relationship()
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-# --- Episode Database Model ---
 class Episode(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)
     
-    # Relationships
     user_id: UUID = Field(foreign_key="user.id")
     user: Optional[User] = Relationship()
-    template_id: UUID = Field(foreign_key="podcasttemplate.id")
+    template_id: Optional[UUID] = Field(default=None, foreign_key="podcasttemplate.id")
     template: Optional[PodcastTemplate] = Relationship(back_populates="episodes")
-    podcast_id: UUID = Field(foreign_key="podcast.id") # Link to the parent podcast
+    podcast_id: UUID = Field(foreign_key="podcast.id")
     podcast: Optional[Podcast] = Relationship(back_populates="episodes")
 
-    # Episode Metadata
     title: str = Field(default="Untitled Episode")
-    cover_path: Optional[str] = Field(default=None) # New
-    season_number: Optional[int] = Field(default=None)
-    episode_number: Optional[int] = Field(default=None)
+    cover_path: Optional[str] = Field(default=None)
     show_notes: Optional[str] = Field(default=None)
-    tags: Optional[str] = Field(default=None)
-    guests: Optional[str] = Field(default=None)
     
-    # File & Status Info
     status: EpisodeStatus = Field(default=EpisodeStatus.pending)
-    total_length_seconds: Optional[float] = Field(default=None)
     final_audio_path: Optional[str] = Field(default=None)
-    transcript_path: Optional[str] = Field(default=None)
 
-    # Timestamps
     processed_at: datetime = Field(default_factory=datetime.utcnow)
     publish_at: Optional[datetime] = Field(default=None)

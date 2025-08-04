@@ -1,6 +1,7 @@
 import shutil
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
-from typing import List
+from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Form
+from pydantic import BaseModel
+from typing import List, Optional
 from uuid import UUID
 from pathlib import Path
 from sqlmodel import Session, select
@@ -18,20 +19,26 @@ router = APIRouter(
 MEDIA_DIR = Path("media_uploads")
 MEDIA_DIR.mkdir(exist_ok=True)
 
+class MediaItemUpdate(BaseModel):
+    friendly_name: str
+
 @router.post("/upload/{category}", response_model=List[MediaItem], status_code=status.HTTP_201_CREATED)
 async def upload_media_files(
-    category: MediaCategory, # Get category from the URL path
+    category: MediaCategory,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] = File(...),
+    friendly_names_str: Optional[str] = Form(None)
 ):
-    """Upload one or more media files to the user's library under a specific category."""
+    """Upload one or more media files with optional friendly names."""
     created_items = []
-    for file in files:
+    names = friendly_names_str.split(',') if friendly_names_str else []
+
+    for i, file in enumerate(files):
         if not file.filename:
             continue
 
-        safe_filename = f"{current_user.id}_{file.filename}"
+        safe_filename = f"{current_user.id.hex}_{file.filename}"
         file_path = MEDIA_DIR / safe_filename
         
         try:
@@ -39,9 +46,12 @@ async def upload_media_files(
                 shutil.copyfileobj(file.file, buffer)
         finally:
             file.file.close()
+        
+        friendly_name = names[i] if i < len(names) and names[i].strip() else None
 
         media_item = MediaItem(
             filename=safe_filename,
+            friendly_name=friendly_name,
             content_type=file.content_type,
             filesize=file_path.stat().st_size,
             user_id=current_user.id,
@@ -65,20 +75,37 @@ async def list_user_media(
     statement = select(MediaItem).where(MediaItem.user_id == current_user.id)
     return session.exec(statement).all()
 
+@router.put("/{media_id}", response_model=MediaItem)
+async def update_media_item_name(
+    media_id: UUID,
+    media_update: MediaItemUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Update the friendly name of a media item."""
+    media_item = session.get(MediaItem, media_id)
+    if not media_item or media_item.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Media item not found.")
+    
+    media_item.friendly_name = media_update.friendly_name
+    session.add(media_item)
+    session.commit()
+    session.refresh(media_item)
+    return media_item
+
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_media_item(
     media_id: UUID,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a media item from the library and the filesystem."""
-    statement = select(MediaItem).where(MediaItem.id == media_id)
-    media_item = session.exec(statement).first()
+    # --- THIS IS THE FIX ---
+    # Using a select statement to be more explicit, then fetching the single result.
+    statement = select(MediaItem).where(MediaItem.id == media_id, MediaItem.user_id == current_user.id)
+    media_item = session.exec(statement).one_or_none()
 
     if not media_item:
-        raise HTTPException(status_code=404, detail="Media item not found.")
-    if media_item.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this item.")
+        raise HTTPException(status_code=404, detail="Media item not found or you don't have permission to delete it.")
 
     file_path = MEDIA_DIR / media_item.filename
     if file_path.exists():

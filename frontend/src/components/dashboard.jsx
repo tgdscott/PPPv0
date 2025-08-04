@@ -1,9 +1,9 @@
 "use client"
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Headphones,
   Plus,
@@ -26,19 +26,21 @@ import {
   Loader2,
   Podcast,
   ArrowLeft,
-} from "lucide-react"
-import { useState, useEffect } from "react"
-import { useAuth } from "@/AuthContext"
-import { useToast } from "@/hooks/use-toast"
+  Rss,
+  AlertTriangle, // <-- THIS ICON WAS ADDED
+} from "lucide-react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
-// Import the components for each view
-import TemplateEditor from "@/components/dashboard/TemplateEditor"
-import PodcastCreator from "@/components/dashboard/PodcastCreator"
-import MediaLibrary from "@/components/dashboard/MediaLibrary"
-import EpisodeHistory from "@/components/dashboard/EpisodeHistory"
-import PodcastManager from "@/components/dashboard/PodcastManager"
+import TemplateEditor from "@/components/dashboard/TemplateEditor";
+import PodcastCreator from "@/components/dashboard/PodcastCreator";
+import MediaLibrary from "@/components/dashboard/MediaLibrary";
+import EpisodeHistory from "@/components/dashboard/EpisodeHistory";
+import PodcastManager from "@/components/dashboard/PodcastManager";
+import RssImporter from "@/components/dashboard/RssImporter";
+import DevTools from "@/components/dashboard/DevTools";
 
-// --- Main Dashboard Component ---
 export default function PodcastPlusDashboard() {
   const { token, logout } = useAuth();
   const { toast } = useToast();
@@ -59,10 +61,7 @@ export default function PodcastPlusDashboard() {
         fetch('/api/podcasts/', { headers: { 'Authorization': `Bearer ${token}` } })
       ]).then(async ([userRes, templatesRes, statsRes, podcastsRes]) => {
         if (!userRes.ok || !templatesRes.ok || !statsRes.ok || !podcastsRes.ok) { logout(); return; }
-        const userData = await userRes.json();
-        const templatesData = await templatesRes.json();
-        const statsData = await statsRes.json();
-        const podcastsData = await podcastsRes.json();
+        const [userData, templatesData, statsData, podcastsData] = await Promise.all([userRes.json(), templatesRes.json(), statsRes.json(), podcastsRes.json()]);
         setUser(userData);
         setTemplates(templatesData);
         setStats(statsData);
@@ -172,33 +171,16 @@ export default function PodcastPlusDashboard() {
             <Button onClick={() => setCurrentView('podcastManager')} variant="outline" className="w-full justify-start bg-transparent"><Podcast className="w-4 h-4 mr-2" />Manage Shows</Button>
             <Button onClick={() => setCurrentView('episodeHistory')} variant="outline" className="w-full justify-start bg-transparent"><BarChart3 className="w-4 h-4 mr-2" />Episode History</Button>
             <Button onClick={() => setCurrentView('mediaLibrary')} variant="outline" className="w-full justify-start bg-transparent"><Music className="w-4 h-4 mr-2" />Media Library</Button>
+            <Button onClick={() => setCurrentView('rssImporter')} variant="outline" className="w-full justify-start bg-transparent"><Rss className="w-4 h-4 mr-2" />Import from RSS</Button>
+            <Button onClick={() => setCurrentView('devTools')} variant="ghost" className="w-full justify-start text-amber-600 hover:bg-amber-50 hover:text-amber-700">
+                <AlertTriangle className="w-4 h-4 mr-2" />Developer Tools
+            </Button>
         </CardContent></Card>
       </div>
     </div>
   );
 
   const renderCurrentView = () => {
-    if (currentView !== 'podcastManager' && podcasts.length === 0) {
-        return (
-            <div className="text-center py-20">
-                <Podcast className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">No shows created</h3>
-                <p className="mt-1 text-sm text-gray-500">Get started by creating your first show.</p>
-                <div className="mt-6"><Button onClick={() => setCurrentView('podcastManager')}>Create a Show</Button></div>
-            </div>
-        )
-    }
-    if (currentView !== 'podcastManager' && currentView !== 'templateManager' && currentView !== 'editTemplate' && templates.length === 0) {
-        return (
-            <div className="text-center py-20">
-                <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">No templates created</h3>
-                <p className="mt-1 text-sm text-gray-500">Create a template to define your episode structure.</p>
-                <div className="mt-6"><Button onClick={() => setCurrentView('templateManager')}>Create a Template</Button></div>
-            </div>
-        )
-    }
-
     switch (currentView) {
       case 'templateManager':
         return renderTemplateManager();
@@ -212,15 +194,38 @@ export default function PodcastPlusDashboard() {
         return <EpisodeHistory onBack={handleBackToDashboard} token={token} />;
       case 'podcastManager':
         return <PodcastManager onBack={handleBackToDashboard} token={token} podcasts={podcasts} setPodcasts={setPodcasts}/>;
+      case 'rssImporter':
+        return <RssImporter onBack={handleBackToDashboard} token={token} />;
+      case 'devTools':
+        return <DevTools token={token} />;
       case 'dashboard':
       default:
+        const canCreateEpisode = podcasts.length > 0 && templates.length > 0;
         return (
           <div>
             <div className="mb-8">
               <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6">
                 <div><h1 className="text-3xl md:text-4xl font-bold mb-2" style={{ color: "#2C3E50" }}>Welcome Back, {user ? user.email.split('@')[0] : '...'}! 👋</h1><p className="text-lg text-gray-600">You're doing great! Here's what's happening with your podcast.</p></div>
               </div>
-              <div className="text-center"><Button size="lg" onClick={() => setCurrentView('createEpisode')} className="text-xl px-12 py-6 rounded-xl font-semibold text-white hover:opacity-90 transition-all transform hover:scale-105 shadow-lg" style={{ backgroundColor: "#2C3E50" }}><Plus className="w-6 h-6 mr-3" />Create New Episode</Button></div>
+              <div className="text-center">
+                {canCreateEpisode ? (
+                    <Button size="lg" onClick={() => setCurrentView('createEpisode')} className="text-xl px-12 py-6 rounded-xl font-semibold text-white hover:opacity-90 transition-all transform hover:scale-105 shadow-lg" style={{ backgroundColor: "#2C3E50" }}>
+                        <Plus className="w-6 h-6 mr-3" />Create New Episode
+                    </Button>
+                ) : (
+                    <Card className="max-w-2xl mx-auto p-6 bg-amber-50 border-amber-200">
+                        <CardTitle className="text-amber-800">Ready to create an episode?</CardTitle>
+                        <CardDescription className="text-amber-700 mt-2">
+                            {podcasts.length === 0 && "You need to create a Show first. "}
+                            {templates.length === 0 && "You need to create a Template first."}
+                        </CardDescription>
+                        <div className="mt-4 flex justify-center gap-4">
+                            {podcasts.length === 0 && <Button onClick={() => setCurrentView('podcastManager')}>Create a Show</Button>}
+                            {templates.length === 0 && <Button onClick={() => setCurrentView('templateManager')}>Create a Template</Button>}
+                        </div>
+                    </Card>
+                )}
+              </div>
             </div>
             {renderDashboardContent()}
           </div>
