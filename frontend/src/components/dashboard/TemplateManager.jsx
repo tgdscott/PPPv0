@@ -1,5 +1,5 @@
-import { Button } from "../ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Plus, Edit, Trash2, Loader2, ArrowLeft } from "lucide-react";
 import { useState, useEffect } from "react";
 import TemplateEditor from "./TemplateEditor"; // We will use the editor as a sub-component

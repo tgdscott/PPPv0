@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from './AuthContext.jsx'; 
-import PodcastPlusDashboard from '../dashboard.jsx'; // The regular user dashboard
-import AdminDashboard from '../admin-dashboard.jsx'; // The new admin dashboard
-import LandingPage from '../landing-page.jsx';
+import PodcastPlusDashboard from '@/components/dashboard.jsx'; // The regular user dashboard
+import AdminDashboard from '@/components/admin-dashboard.jsx'; // The new admin dashboard
+import LandingPage from '@/components/landing-page.jsx';
 
 // --- IMPORTANT ---
 // This should match the actual email address you set for ADMIN_EMAIL in your .env file.

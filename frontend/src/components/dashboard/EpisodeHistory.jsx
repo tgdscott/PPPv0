@@ -197,7 +197,6 @@ export default function EpisodeHistory({ onBack, token }) {
       {isShareDialogOpen && shareEpisode && (
         <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
           <DialogContent>
-            {/* --- THIS BLOCK IS FIXED --- */}
             <DialogHeader>
               <DialogTitle className="text-xl font-bold">Share Episode: {shareEpisode.title}</DialogTitle>
               <DialogDescription>

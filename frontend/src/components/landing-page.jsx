@@ -1,8 +1,8 @@
-import { Button } from "./src/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "./src/components/ui/card"
-import { Badge } from "./src/components/ui/badge"
-import { Input } from "./src/components/ui/input"
-import { Label } from "./src/components/ui/label"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Mic,
   Settings,
@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react"
 import { useState } from "react"
-import { useAuth } from "./src/AuthContext"
+import { useAuth } from "@/AuthContext"
 
 
 // --- Login Modal Component ---

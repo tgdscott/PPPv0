@@ -62,6 +62,24 @@ async def get_template(
     return convert_db_template_to_public(db_template)
 
 
+@router.delete("/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_template(
+    template_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a podcast template."""
+    db_template = crud.get_template_by_id(session=session, template_id=template_id)
+    if not db_template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if db_template.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this template")
+    
+    session.delete(db_template)
+    session.commit()
+    return
+
+
 @router.put("/{template_id}", response_model=PodcastTemplatePublic)
 async def update_template(
     template_id: UUID,

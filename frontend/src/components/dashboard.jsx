@@ -29,8 +29,7 @@ import {
 } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useAuth } from "@/AuthContext"
-// --- THIS LINE IS FIXED ---
-import { useToast } from "@/components/ui/use-toast.js"
+import { useToast } from "@/hooks/use-toast"
 
 // Import the components for each view
 import TemplateEditor from "@/components/dashboard/TemplateEditor"
@@ -51,7 +50,6 @@ export default function PodcastPlusDashboard() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
 
-  // --- START: Data Fetching and Handlers ---
   const fetchData = () => {
     if (token) {
       Promise.all([
@@ -99,15 +97,12 @@ export default function PodcastPlusDashboard() {
         });
         if (!response.ok) throw new Error('Failed to delete template.');
         toast({ title: "Success", description: "Template deleted." });
-        fetchData(); // Refresh all data
+        fetchData(); 
     } catch (err) {
         toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   };
-  // --- END: Data Fetching and Handlers ---
 
-
-  // --- START: View for the Template Manager ---
   const renderTemplateManager = () => (
     <div className="p-6">
        <Button onClick={() => setCurrentView('dashboard')} variant="ghost" className="mb-4"><ArrowLeft className="w-4 h-4 mr-2" />Back to Dashboard</Button>
@@ -140,32 +135,18 @@ export default function PodcastPlusDashboard() {
         </Card>
     </div>
   );
-  // --- END: View for the Template Manager ---
 
-
-  // --- START: Main Dashboard View ---
   const renderDashboardContent = () => (
     <div className="grid lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-6">
-        {/* Performance Section */}
-        <section>
-          <h2 className="text-2xl font-bold mb-4" style={{ color: "#2C3E50" }}>Your Podcast Performance</h2>
-          <div className="grid md:grid-cols-3 gap-4">
-            <Card className="border-0 shadow-md bg-white hover:shadow-lg transition-all"><CardContent className="p-6"><div className="flex items-center justify-between mb-2"><div className="flex items-center"><Play className="w-5 h-5 mr-2" style={{ color: "#2C3E50" }} /><span className="text-sm text-gray-600">Total Episodes</span></div></div><div className="text-3xl font-bold" style={{ color: "#2C3E50" }}>{stats ? stats.total_episodes : <Loader2 className="h-6 w-6 animate-spin" />}</div></CardContent></Card>
-            <Card className="border-0 shadow-md bg-white hover:shadow-lg transition-all"><CardContent className="p-6"><div className="flex items-center justify-between mb-2"><div className="flex items-center"><Download className="w-5 h-5 mr-2" style={{ color: "#2C3E50" }} /><span className="text-sm text-gray-600">Total Downloads</span></div></div><div className="text-3xl font-bold" style={{ color: "#2C3E50" }}>{stats ? stats.total_downloads.toLocaleString() : <Loader2 className="h-6 w-6 animate-spin" />}</div></CardContent></Card>
-            <Card className="border-0 shadow-md bg-white hover:shadow-lg transition-all"><CardContent className="p-6"><div className="flex items-center justify-between mb-2"><div className="flex items-center"><Users className="w-5 h-5 mr-2" style={{ color: "#2C3E50" }} /><span className="text-sm text-gray-600">Monthly Listeners</span></div></div><div className="text-3xl font-bold" style={{ color: "#2C3E50" }}>{stats ? stats.monthly_listeners : <Loader2 className="h-6 w-6 animate-spin" />}</div></CardContent></Card>
-          </div>
-        </section>
-        {/* Templates Section */}
         <section>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold" style={{ color: "#2C3E50" }}>Your Podcast Templates</h2>
-            {/* THIS BUTTON NOW WORKS */}
             <Button onClick={() => setCurrentView('templateManager')} variant="outline" className="border-2 bg-transparent hover:bg-gray-50" style={{ borderColor: "#2C3E50", color: "#2C3E50" }}>Manage All Templates</Button>
           </div>
           <div className="space-y-4">
             {templates.length > 0 ? (
-              templates.slice(0, 3).map((template) => ( // Show first 3 templates
+              templates.slice(0, 3).map((template) => (
                 <Card key={template.id} className="border-0 shadow-md hover:shadow-lg transition-all bg-white">
                   <CardContent className="p-6">
                     <div className="flex items-center space-x-4">
@@ -186,7 +167,6 @@ export default function PodcastPlusDashboard() {
           </div>
         </section>
       </div>
-      {/* Sidebar */}
       <div className="space-y-6">
         <Card className="border-0 shadow-md bg-white"><CardHeader><CardTitle>Quick Tools</CardTitle></CardHeader><CardContent className="space-y-3">
             <Button onClick={() => setCurrentView('podcastManager')} variant="outline" className="w-full justify-start bg-transparent"><Podcast className="w-4 h-4 mr-2" />Manage Shows</Button>
@@ -196,12 +176,8 @@ export default function PodcastPlusDashboard() {
       </div>
     </div>
   );
-  // --- END: Main Dashboard View ---
 
-
-  // --- START: Main View Router ---
   const renderCurrentView = () => {
-    // --- Prerequisite Checks ---
     if (currentView !== 'podcastManager' && podcasts.length === 0) {
         return (
             <div className="text-center py-20">
@@ -225,7 +201,7 @@ export default function PodcastPlusDashboard() {
 
     switch (currentView) {
       case 'templateManager':
-        return renderTemplateManager(); // New view for the list
+        return renderTemplateManager();
       case 'editTemplate':
         return <TemplateEditor templateId={selectedTemplateId} onBack={handleBackToTemplateManager} token={token} onTemplateSaved={fetchData} />;
       case 'createEpisode':
@@ -251,16 +227,12 @@ export default function PodcastPlusDashboard() {
         );
     }
   };
-  // --- END: Main View Router ---
-
   
-  // --- START: Main Component Return ---
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="border-b border-gray-200 px-4 py-4 bg-white shadow-sm">
         <div className="container mx-auto max-w-7xl flex justify-between items-center">
           <div className="flex items-center space-x-3"><Headphones className="w-8 h-8" style={{ color: "#2C3E50" }} /><span className="text-2xl font-bold" style={{ color: "#2C3E50" }}>Podcast Plus</span></div>
-          <div className="hidden md:flex items-center flex-1 max-w-md mx-8"><div className="relative w-full"><Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" /><input type="text" placeholder="Search templates, episodes..." className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" /></div></div>
           <div className="flex items-center space-x-4">
             <Button variant="ghost" size="sm" className="relative"><Bell className="w-5 h-5" />{notifications > 0 && (<Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 flex items-center justify-center bg-red-500 text-white text-xs">{notifications}</Badge>)}</Button>
             <div className="flex items-center space-x-3"><Avatar className="h-8 w-8"><AvatarImage src={user?.picture} /><AvatarFallback>{user?.email ? user.email.substring(0, 2).toUpperCase() : '...'}</AvatarFallback></Avatar><span className="hidden md:block text-sm font-medium" style={{ color: "#2C3E50" }}>{user ? user.email : 'Loading...'}</span></div>
@@ -273,5 +245,4 @@ export default function PodcastPlusDashboard() {
       </main>
     </div>
   );
-  // --- END: Main Component Return ---
 }
