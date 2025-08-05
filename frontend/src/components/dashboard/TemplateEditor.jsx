@@ -294,7 +294,7 @@ export default function TemplateEditor({ templateId, onBack, token, onTemplateSa
                                 <SelectItem value="content">Content Section</SelectItem>
                                 <SelectItem value="outro">Outro Section</SelectItem>
                             </SelectContent></Select></div>
-                            <div><Label>Music File</Label><Select value={rule.music_filename} onValueChange={(v) => handleBackgroundMusicChange(index, 'music_filename', v)}><SelectTrigger><SelectValue placeholder="Select music..." /></SelectTrigger><SelectContent>{musicFiles.map(f => <SelectItem key={f.id} value={f.filename}>{f.filename.split('_').slice(1).join('_')}</SelectItem>)}</SelectContent></Select></div>
+                            <div><Label>Music File</Label><Select value={rule.music_filename} onValueChange={(v) => handleBackgroundMusicChange(index, 'music_filename', v)}><SelectTrigger><SelectValue placeholder="Select music..." /></SelectTrigger><SelectContent>{musicFiles.map(f => <SelectItem key={f.id} value={f.filename}>{f.friendly_name || f.filename.split('_').slice(1).join('_')}</SelectItem>)}</SelectContent></Select></div>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div><Label>Start Offset (sec)</Label><Input type="number" step="0.5" value={rule.start_offset_s} onChange={(e) => handleBackgroundMusicChange(index, 'start_offset_s', parseFloat(e.target.value || 0))} /></div>
@@ -382,7 +382,7 @@ const SegmentEditor = ({ segment, onDelete, onSourceChange, mediaFiles, isDraggi
                             <Label>Audio File</Label>
                             <Select value={segment.source.filename} onValueChange={(v) => handleSourceChangeLocal('filename', v)}>
                                 <SelectTrigger className="w-full mt-1"><SelectValue placeholder={`Select a ${segment.segment_type} file...`} /></SelectTrigger>
-                                <SelectContent>{filesForType.map(mf => <SelectItem key={mf.id} value={mf.filename}>{mf.filename.split('_').slice(1).join('_')}</SelectItem>)}</SelectContent>
+                                <SelectContent>{filesForType.map(mf => <SelectItem key={mf.id} value={mf.filename}>{mf.friendly_name || mf.filename.split('_').slice(1).join('_')}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
                     )}

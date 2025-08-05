@@ -63,7 +63,7 @@ export default function MediaLibrary({ onBack, token }) {
       formData.append("files", fileWithName.file);
       friendlyNames.push(fileWithName.friendly_name);
     }
-    formData.append("friendly_names_str", friendlyNames.join(','));
+    formData.append("friendly_names", JSON.stringify(friendlyNames));
 
     try {
       const response = await fetch(`/api/media/upload/${selectedCategory}`, {

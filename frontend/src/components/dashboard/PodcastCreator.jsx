@@ -54,6 +54,7 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
 
     const formData = new FormData();
     formData.append("files", file);
+    formData.append("friendly_names", JSON.stringify([file.name]));
 
     try {
       const response = await fetch('/api/media/upload/main_content', {

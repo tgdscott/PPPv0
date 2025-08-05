@@ -1,4 +1,6 @@
 import shutil
+import json
+from uuid import uuid4
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Optional
@@ -28,17 +30,21 @@ async def upload_media_files(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
     files: List[UploadFile] = File(...),
-    friendly_names_str: Optional[str] = Form(None)
+    friendly_names: Optional[str] = Form(None)
 ):
     """Upload one or more media files with optional friendly names."""
     created_items = []
-    names = friendly_names_str.split(',') if friendly_names_str else []
+    names = json.loads(friendly_names) if friendly_names else []
 
     for i, file in enumerate(files):
         if not file.filename:
             continue
 
-        safe_filename = f"{current_user.id.hex}_{file.filename}"
+        original_filename = Path(file.filename).stem
+        default_friendly_name = ' '.join(original_filename.split('_')).title()
+
+        # --- FIX: Add uuid4 to filename to ensure uniqueness ---
+        safe_filename = f"{current_user.id.hex}_{uuid4().hex}_{file.filename}"
         file_path = MEDIA_DIR / safe_filename
         
         try:
@@ -47,7 +53,7 @@ async def upload_media_files(
         finally:
             file.file.close()
         
-        friendly_name = names[i] if i < len(names) and names[i].strip() else None
+        friendly_name = names[i] if i < len(names) and names[i].strip() else default_friendly_name
 
         media_item = MediaItem(
             filename=safe_filename,
