@@ -21,8 +21,6 @@ import {
 import { useState, useEffect, useMemo } from "react";
 
 // --- Helper Functions & Constants ---
-const msToSeconds = (ms) => (ms || 0) / 1000;
-const secondsToMs = (s) => parseFloat(s || 0) * 1000;
 const DEFAULT_VOICE_ID = "19B4gjtpL5m876wS3Dfg"; // A default voice for TTS/AI
 
 // --- UI Components ---
@@ -130,15 +128,6 @@ export default function TemplateEditor({ templateId, onBack, token, onTemplateSa
     setTemplate(prev => ({ ...prev, background_music_rules: newRules }));
   };
 
-  const handleSegmentChange = (segmentId, field, value) => {
-    setTemplate(prev => ({
-      ...prev,
-      segments: prev.segments.map(seg =>
-        seg.id === segmentId ? { ...seg, [field]: value } : seg
-      )
-    }));
-  };
-  
   const handleSourceChange = (segmentId, source) => {
      setTemplate(prev => ({
       ...prev,
@@ -301,6 +290,21 @@ export default function TemplateEditor({ templateId, onBack, token, onTemplateSa
                             <div><Label>End Offset (sec)</Label><Input type="number" step="0.5" value={rule.end_offset_s} onChange={(e) => handleBackgroundMusicChange(index, 'end_offset_s', parseFloat(e.target.value || 0))} /></div>
                             <div><Label>Fade In (sec)</Label><Input type="number" step="0.5" value={rule.fade_in_s} onChange={(e) => handleBackgroundMusicChange(index, 'fade_in_s', parseFloat(e.target.value || 0))} /></div>
                             <div><Label>Fade Out (sec)</Label><Input type="number" step="0.5" value={rule.fade_out_s} onChange={(e) => handleBackgroundMusicChange(index, 'fade_out_s', parseFloat(e.target.value || 0))} /></div>
+                        </div>
+                        <div className="mt-4">
+                            <Label>Volume (dB)</Label>
+                            <div className="flex items-center gap-2">
+                                <Input 
+                                    type="range" 
+                                    min="-60" 
+                                    max="0" 
+                                    step="1" 
+                                    value={rule.volume_db} 
+                                    onChange={(e) => handleBackgroundMusicChange(index, 'volume_db', parseInt(e.target.value, 10))} 
+                                    className="w-full"
+                                />
+                                <span className="text-sm font-mono w-16 text-center">{rule.volume_db} dB</span>
+                            </div>
                         </div>
                     </div>
                 ))}

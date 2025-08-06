@@ -6,6 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .core.database import create_db_and_tables
 from .core.config import settings
 from .routers import templates, episodes, auth, media, users, admin, podcasts, importer, dev
+from worker.tasks import celery_app
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

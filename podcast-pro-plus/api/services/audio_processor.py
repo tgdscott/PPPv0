@@ -5,10 +5,13 @@ from pydub import AudioSegment
 from pydub.effects import normalize
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Set, Tuple
+import re
+import json
 
 # Import the necessary models and services
-from ..models.podcast import PodcastTemplate, TemplateSegment
+from ..models.podcast import PodcastTemplate, TemplateSegment, BackgroundMusicRule, SegmentTiming
 from . import ai_enhancer, transcription, keyword_detector
+from api.routers.media import MEDIA_DIR # Import MEDIA_DIR
 
 # The Recommended Fix: Tell pydub directly where FFmpeg is
 AudioSegment.converter = "C:\\ffmpeg\\ffmpeg-7.1.1-essentials_build\\bin\\ffmpeg.exe"
@@ -16,14 +19,17 @@ AudioSegment.ffprobe   = "C:\\ffmpeg\\ffmpeg-7.1.1-essentials_build\\bin\\ffprob
 
 
 # Define paths for temporary and final output files
-UPLOAD_DIR = Path("temp_uploads")
+# UPLOAD_DIR is now MEDIA_DIR from media.py
+# UPLOAD_DIR = Path("temp_uploads") # Removed as it's now MEDIA_DIR
 OUTPUT_DIR = Path("final_episodes")
 AI_SEGMENTS_DIR = Path("ai_segments")
 CLEANED_DIR = Path("cleaned_audio")
 EDITED_DIR = Path("edited_audio")
 TRANSCRIPTS_DIR = Path("transcripts")
-for d in [UPLOAD_DIR, OUTPUT_DIR, AI_SEGMENTS_DIR, CLEANED_DIR, EDITED_DIR, TRANSCRIPTS_DIR]:
-    d.mkdir(exist_ok=True)
+
+# Use MEDIA_DIR in the directory creation loop
+for d in [MEDIA_DIR, OUTPUT_DIR, AI_SEGMENTS_DIR, CLEANED_DIR, EDITED_DIR, TRANSCRIPTS_DIR]:
+    d.mkdir(exist_ok=True);
 
 class AudioProcessingError(Exception):
     """Custom exception for audio processing failures."""
@@ -54,7 +60,7 @@ def process_and_assemble_episode(
 
     # --- Step 1: Load Main Content & Get Initial Transcript ---
     step_start_time = time.time()
-    content_path = UPLOAD_DIR / main_content_filename
+    content_path = MEDIA_DIR / main_content_filename # Use MEDIA_DIR here
     if not content_path.exists():
         raise AudioProcessingError(f"Main content file not found: {main_content_filename}")
     
@@ -82,13 +88,16 @@ def process_and_assemble_episode(
     # We use the original word_timestamps to build the final transcript
     final_transcript_text = " ".join([word['word'] for word in word_timestamps])
     
-    transcript_filename = f"{output_filename}.txt"
+    # Sanitize output_filename for file system compatibility
+    sanitized_output_filename = re.sub(r'[<>:"/\\|?*\s]+', '-', output_filename).lower()
+    transcript_filename = f"{sanitized_output_filename}.txt"
     transcript_path = TRANSCRIPTS_DIR / transcript_filename
     with open(transcript_path, "w", encoding="utf-8") as f:
         # Group words into sentences or phrases for a cleaner transcript
         current_line = ""
         line_start_time = 0
-        for i, word_data in enumerate(word_timestamps):
+        for i in range(len(word_timestamps)):
+            word_data = word_timestamps[i]
             if not current_line:
                 line_start_time = word_data['start']
             
@@ -112,13 +121,18 @@ def process_and_assemble_episode(
 
     # --- Step 4: Prepare Template Segments ---
     step_start_time = time.time()
+    # Parse segments, background music rules, and timing from JSON strings
+    template_segments = [TemplateSegment.model_validate(s) for s in json.loads(template.segments_json)]
+    template_background_music_rules = [BackgroundMusicRule.model_validate(r) for r in json.loads(template.background_music_rules_json)]
+    template_timing = SegmentTiming.model_validate(json.loads(template.timing_json))
+
     processed_segments = []
-    for segment_rule in template.segments:
+    for segment_rule in template_segments:
         audio = None
         if segment_rule.segment_type == 'content':
             audio = cleaned_audio
         elif segment_rule.source.source_type == 'static':
-            static_path = UPLOAD_DIR / segment_rule.source.filename
+            static_path = MEDIA_DIR / segment_rule.source.filename # Use MEDIA_DIR here
             if not static_path.exists():
                 log.append(f"WARNING: Static file not found: {segment_rule.source.filename}. Skipping.")
                 continue
@@ -150,8 +164,8 @@ def process_and_assemble_episode(
     content_len_ms = len(stitched_content)
     outro_len_ms = len(stitched_outros)
 
-    content_start_ms = intro_len_ms + (template.timing.content_start_offset_s * 1000)
-    outro_start_ms = content_start_ms + content_len_ms + (template.timing.outro_start_offset_s * 1000)
+    content_start_ms = intro_len_ms + (template_timing.content_start_offset_s * 1000)
+    outro_start_ms = content_start_ms + content_len_ms + (template_timing.outro_start_offset_s * 1000)
 
     total_duration_ms = max(intro_len_ms, content_start_ms + content_len_ms, outro_start_ms + outro_len_ms)
     
@@ -161,8 +175,8 @@ def process_and_assemble_episode(
     final_audio = final_audio.overlay(stitched_content, position=content_start_ms)
     final_audio = final_audio.overlay(stitched_outros, position=outro_start_ms)
     
-    for music_rule in template.background_music_rules:
-        music_path = UPLOAD_DIR / music_rule.music_filename
+    for music_rule in template_background_music_rules:
+        music_path = MEDIA_DIR / music_rule.music_filename # Use MEDIA_DIR here
         if not music_path.exists(): continue
         background_music = AudioSegment.from_file(music_path)
         
@@ -183,7 +197,7 @@ def process_and_assemble_episode(
     # --- Step 6: Finalize ---
     step_start_time = time.time()
     final_audio = normalize(final_audio)
-    output_path = OUTPUT_DIR / f"{output_filename}.mp3"
+    output_path = OUTPUT_DIR / f"{sanitized_output_filename}.mp3" # Use sanitized_output_filename here
     final_audio.export(output_path, format="mp3")
     log.append(f"[TIMING] Final normalization and export took {time.time() - step_start_time:.2f}s")
     

@@ -27,7 +27,7 @@ import {
   Podcast,
   ArrowLeft,
   Rss,
-  AlertTriangle, // <-- THIS ICON WAS ADDED
+  AlertTriangle,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/AuthContext";

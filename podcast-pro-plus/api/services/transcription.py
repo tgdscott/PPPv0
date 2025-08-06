@@ -6,10 +6,11 @@ from typing import List, Dict, Any
 from pydub import AudioSegment
 
 from ..core.config import settings
+from api.routers.media import MEDIA_DIR
 
 client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 
-UPLOAD_DIR = Path("temp_uploads")
+# UPLOAD_DIR = Path("temp_uploads") # Removed, using MEDIA_DIR
 
 # OpenAI Whisper API has a 25MB file size limit. To handle larger files,
 # we will chunk the audio into 10-minute segments, as a 10-minute MP3
@@ -24,7 +25,7 @@ def get_word_timestamps(filename: str) -> List[Dict[str, Any]]:
     """
     Transcribes an audio file to get word-level timestamps, handling large files by chunking.
     """
-    audio_path = UPLOAD_DIR / filename
+    audio_path = MEDIA_DIR / filename # Use MEDIA_DIR here
     if not audio_path.exists():
         raise TranscriptionError(f"Audio file not found: {filename}")
 

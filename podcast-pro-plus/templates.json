@@ -18,7 +18,8 @@
         "source": {
           "source_type": "tts",
           "script": "",
-          "voice_id": "19B4gjtpL5m876wS3Dfg"
+          "voice_id": "19B4gjtpL5m876wS3Dfg",
+          "text_prompt": "Please enter the text for the intro narration."
         }
       },
       {
