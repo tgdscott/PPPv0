@@ -39,8 +39,19 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
     elevenlabsApiKey: '',
   });
   const [isSpreakerConnected, setIsSpreakerConnected] = useState(false);
-  const totalSteps = 7; // Re-added the template step
   const { toast } = useToast();
+
+  const wizardSteps = [
+    { id: 'welcome', title: 'Welcome!' },
+    { id: 'showDetails', title: 'Tell Us About Your Show' },
+    { id: 'coverArt', title: 'Your Podcast\'s Cover Art' },
+    { id: 'format', title: 'Choose Your Show\'s Format' },
+    { id: 'template', title: 'Your First Episode Template' },
+    { id: 'spreaker', title: 'Connect to the World' },
+    { id: 'elevenlabs', title: 'Optional: AI Voices' },
+    { id: 'finish', title: 'Ready to Go!' },
+  ];
+  const totalSteps = wizardSteps.length;
 
   useEffect(() => {
     const handleMessage = (event) => {
@@ -78,8 +89,9 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
       const popup = window.open(auth_url, 'spreakerAuth', 'width=600,height=700');
       
       const timer = setInterval(() => {
-        if (popup.closed) {
+        if (!popup || popup.closed) {
           clearInterval(timer);
+          // Check connection status with the backend
           fetch("/api/users/me", { headers: { 'Authorization': `Bearer ${token}` } })
             .then(res => res.json())
             .then(user => {
@@ -88,7 +100,7 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
               }
             });
         }
-      }, 500);
+      }, 1000);
 
     } catch (error) {
       toast({ title: "Connection Error", description: error.message, variant: "destructive" });
@@ -256,6 +268,19 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
         )}
 
         {step === 7 && (
+          <WizardStep>
+            <h3 className="text-lg font-semibold mb-2">Optional: AI Voices</h3>
+            <DialogDescription className="mb-4">
+               ElevenLabs is a service that creates realistic AI voices from text. If you want to use AI for intros or other segments, you'll need an API key from them. You can get one for free from their website.
+            </DialogDescription>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="elevenlabsApiKey" className="text-right">ElevenLabs API Key</Label>
+              <Input id="elevenlabsApiKey" type="password" value={formData.elevenlabsApiKey} onChange={handleChange} className="col-span-3" placeholder="(Optional) Paste your key here" />
+            </div>
+          </WizardStep>
+        )}
+
+        {step === 8 && (
           <WizardStep>
             <h3 className="text-lg font-semibold mb-2">Ready to Go!</h3>
             <p className="text-sm text-gray-600">

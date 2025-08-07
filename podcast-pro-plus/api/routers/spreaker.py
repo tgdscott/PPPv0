@@ -98,7 +98,7 @@ async def spreaker_callback(request: Request, code: str, state: str, db: Session
                 <title>Authentication Successful</title>
                 <script>
                     window.opener.postMessage("spreaker_connected", "*");
-                    window.close();
+                    setTimeout(() => window.close(), 500);
                 </script>
             </head>
             <body>

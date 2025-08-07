@@ -16,7 +16,6 @@ router = APIRouter(
     tags=["Podcasts (Shows)"],
 )
 
-# Define the path to store uploaded cover art
 UPLOAD_DIRECTORY = Path("media_uploads")
 UPLOAD_DIRECTORY.mkdir(exist_ok=True)
 
@@ -37,37 +36,56 @@ class PodcastUpdate(PodcastBase):
 async def create_podcast(
     name: str = Form(...),
     description: str = Form(...),
-    cover_image: UploadFile = File(None),
+    cover_image: Optional[UploadFile] = File(None),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Creates a new podcast show both locally and on Spreaker.
+    Creates a new podcast show. If the user has a Spreaker token,
+    it creates the show on Spreaker first and links it.
     """
     spreaker_show_id = None
+    # Check if the user is connected to Spreaker
     if current_user.spreaker_access_token:
         client = SpreakerClient(api_token=current_user.spreaker_access_token)
+        # Create the show on Spreaker
         success, result = client.create_show(title=name, description=description)
         if not success:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to create show on Spreaker: {result}")
-        spreaker_show_id = result['show_id']
+            # If it fails, we raise an error so the user knows something went wrong
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create show on Spreaker: {result}"
+            )
+        # Extract the new show_id from the successful Spreaker response
+        spreaker_show_id = result.get("show_id")
+        if not spreaker_show_id:
+            raise HTTPException(
+                status_code=status.HTTP_5_00_INTERNAL_SERVER_ERROR,
+                detail="Spreaker created the show but did not return a valid ID."
+            )
 
+    # Now, create the podcast in our local database
     db_podcast = Podcast(
         name=name,
         description=description,
-        spreaker_show_id=spreaker_show_id,
+        spreaker_show_id=spreaker_show_id,  # This will be the new ID from Spreaker or None
         user_id=current_user.id
     )
 
     if cover_image:
         file_extension = Path(cover_image.filename).suffix
-        unique_filename = f"{UUID(int=current_user.id.int)}_{uuid4()}{file_extension}"
+        # Use a more robust unique filename
+        unique_filename = f"{current_user.id}_{uuid4()}{file_extension}"
         save_path = UPLOAD_DIRECTORY / unique_filename
         
-        with save_path.open("wb") as buffer:
-            shutil.copyfileobj(cover_image.file, buffer)
-        
-        db_podcast.cover_path = f"/{UPLOAD_DIRECTORY}/{unique_filename}"
+        try:
+            with save_path.open("wb") as buffer:
+                shutil.copyfileobj(cover_image.file, buffer)
+            # Store a web-accessible path
+            db_podcast.cover_path = f"/{UPLOAD_DIRECTORY}/{unique_filename}"
+        except Exception as e:
+            # Handle potential file saving errors
+            raise HTTPException(status_code=500, detail=f"Failed to save cover image: {e}")
 
     session.add(db_podcast)
     session.commit()
