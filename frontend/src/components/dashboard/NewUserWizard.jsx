@@ -4,38 +4,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle } from 'lucide-react';
 
 const WizardStep = ({ children }) => <div className="py-4">{children}</div>;
 
-const podcastFormats = {
-  interview: {
-    name: 'Interview Show',
-    description: 'You interview a different guest in each episode.',
-    default_template: ['Intro Music', 'Host Introduction', 'Guest Interview', 'Host Outro', 'Outro Music'],
-  },
-  solo: {
-    name: 'Solo Show',
-    description: 'You speak directly to the audience on a topic.',
-    default_template: ['Intro Music', 'Main Monologue', 'Outro Music'],
-  },
-  panel: {
-    name: 'Panel Show',
-    description: 'A group of people discuss a topic, guided by a host.',
-    default_template: ['Intro Music', 'Host Introduction', 'Panel Discussion', 'Host Outro', 'Outro Music'],
-  },
-};
-
-const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
+const NewUserWizard = ({ open, onOpenChange, token, onPodcastCreated }) => {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     podcastName: '',
     podcastDescription: '',
     coverArt: null,
-    podcastFormat: 'interview',
-    templateName: 'My First Template',
     elevenlabsApiKey: '',
   });
   const [isSpreakerConnected, setIsSpreakerConnected] = useState(false);
@@ -45,8 +24,6 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
     { id: 'welcome', title: 'Welcome!' },
     { id: 'showDetails', title: 'Tell Us About Your Show' },
     { id: 'coverArt', title: 'Your Podcast\'s Cover Art' },
-    { id: 'format', title: 'Choose Your Show\'s Format' },
-    { id: 'template', title: 'Your First Episode Template' },
     { id: 'spreaker', title: 'Connect to the World' },
     { id: 'elevenlabs', title: 'Optional: AI Voices' },
     { id: 'finish', title: 'Ready to Go!' },
@@ -74,10 +51,6 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
     setFormData((prev) => ({ ...prev, [id]: files ? files[0] : value }));
   };
 
-  const handleFormatChange = (value) => {
-    setFormData((prev) => ({ ...prev, podcastFormat: value }));
-  };
-
   const handleConnectSpreaker = async () => {
     try {
       const response = await fetch('/api/spreaker/auth/login', { 
@@ -91,8 +64,7 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
       const timer = setInterval(() => {
         if (!popup || popup.closed) {
           clearInterval(timer);
-          // Check connection status with the backend
-          fetch("/api/users/me", { headers: { 'Authorization': `Bearer ${token}` } })
+          fetch("/api/auth/users/me", { headers: { 'Authorization': `Bearer ${token}` } })
             .then(res => res.json())
             .then(user => {
               if(user.spreaker_access_token) {
@@ -137,24 +109,8 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
       }
       const newPodcast = await podcastRes.json();
 
-      const templatePayload = {
-        name: formData.templateName,
-        podcast_id: newPodcast.id,
-        structure: podcastFormats[formData.podcastFormat].default_template.map(name => ({ segment_name: name, type: 'static' }))
-      };
-
-      const templateRes = await fetch('/api/templates/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(templatePayload),
-      });
-
-      if (!templateRes.ok) {
-        throw new Error('Podcast show was created, but failed to create the template.');
-      }
-
-      toast({ title: "Success!", description: "Your new podcast show and template have been created." });
-      onFinish();
+      toast({ title: "Success!", description: "Your new podcast show has been created." });
+      onPodcastCreated(newPodcast); // Pass the new podcast object back to the parent
 
     } catch (error) {
       toast({ title: "An Error Occurred", description: error.message, variant: "destructive" });
@@ -213,43 +169,6 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
 
         {step === 4 && (
           <WizardStep>
-            <h3 className="text-lg font-semibold mb-2">Choose Your Show's Format</h3>
-            <DialogDescription className="mb-4">
-              How will your podcast be structured? This helps us create a starting template for you. Don't worry, you can always change this later.
-            </DialogDescription>
-            <RadioGroup value={formData.podcastFormat} onValueChange={handleFormatChange}>
-              {Object.entries(podcastFormats).map(([key, { name, description }]) => (
-                <div key={key} className="flex items-center space-x-2 p-2 rounded-md hover:bg-gray-50">
-                  <RadioGroupItem value={key} id={key} />
-                  <Label htmlFor={key} className="font-semibold">{name}</Label>
-                  <p className="text-sm text-gray-500 ml-4">- {description}</p>
-                </div>
-              ))}
-            </RadioGroup>
-          </WizardStep>
-        )}
-
-        {step === 5 && (
-          <WizardStep>
-            <h3 className="text-lg font-semibold mb-2">Your First Episode Template</h3>
-            <DialogDescription className="mb-4">
-              Based on your choice, we've created a starting structure for your episodes. This is your recipe! You can add, remove, or rearrange these segments later.
-            </DialogDescription>
-            <div className="grid gap-2 bg-gray-50 p-4 rounded-md">
-              <Label>Template Name:</Label>
-              <Input id="templateName" value={formData.templateName} onChange={handleChange} className="mb-4" />
-              <Label>Segments:</Label>
-              <ul className="list-disc list-inside pl-2">
-                {podcastFormats[formData.podcastFormat].default_template.map((segment, index) => (
-                  <li key={index} className="text-sm">{segment}</li>
-                ))}
-              </ul>
-            </div>
-          </WizardStep>
-        )}
-
-        {step === 6 && (
-          <WizardStep>
             <h3 className="text-lg font-semibold mb-2">Connect to the World</h3>
             <DialogDescription className="mb-4">
               To get your podcast on platforms like Spotify and Apple Podcasts, you need a host. We use a service called Spreaker for this. Click the button below to connect your Spreaker account. You can create a new account for free if you don't have one.
@@ -267,7 +186,7 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
           </WizardStep>
         )}
 
-        {step === 7 && (
+        {step === 5 && (
           <WizardStep>
             <h3 className="text-lg font-semibold mb-2">Optional: AI Voices</h3>
             <DialogDescription className="mb-4">
@@ -280,11 +199,11 @@ const NewUserWizard = ({ open, onOpenChange, token, onFinish }) => {
           </WizardStep>
         )}
 
-        {step === 8 && (
+        {step === 6 && (
           <WizardStep>
             <h3 className="text-lg font-semibold mb-2">Ready to Go!</h3>
             <p className="text-sm text-gray-600">
-              You've done it! Click 'Finish' to create your new podcast show and your first episode template. You'll then be taken to your dashboard where you can start creating content.
+              You've done it! Click 'Finish' to create your new podcast show. You'll then be taken to your dashboard where you can start creating content.
             </p>
           </WizardStep>
         )}

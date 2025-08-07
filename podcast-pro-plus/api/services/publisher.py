@@ -16,20 +16,15 @@ class SpreakerClient:
             "Accept": "application/json",
         }
 
-    def create_show(self, title: str, description: Optional[str] = None) -> Tuple[bool, Union[Dict, str]]:
+    def create_show(self, title: str, language: str, description: Optional[str] = None) -> Tuple[bool, Union[Dict, str]]:
         """
         Creates a new show on Spreaker.
-
-        Args:
-            title: The title of the show.
-            description: The description of the show.
-
-        Returns:
-            A tuple containing a boolean for success and either the new show dictionary or an error message.
         """
         endpoint = f"{self.BASE_URL}/shows"
         data = {
             "title": title,
+            "language": language,
+            "auto_publish": False,
         }
         if description:
             data["description"] = description
@@ -48,6 +43,24 @@ class SpreakerClient:
         except Exception as e:
             return False, f"An unexpected error occurred while creating show: {e}"
 
+    def update_show_image(self, show_id: str, image_file_path: str) -> Tuple[bool, str]:
+        """
+        Updates the cover art for a specific show on Spreaker.
+        """
+        endpoint = f"{self.BASE_URL}/shows/{show_id}"
+        try:
+            with open(image_file_path, "rb") as image_file:
+                files = {"image_file": image_file}
+                response = requests.post(endpoint, headers=self.headers, files=files)
+                response.raise_for_status()
+            return True, "Successfully updated show image."
+        except requests.exceptions.RequestException as e:
+            return False, f"An API error occurred while updating image: {e}. Response: {e.response.text if e.response else 'No response'}"
+        except FileNotFoundError:
+            return False, f"Image file not found at path: {image_file_path}"
+        except Exception as e:
+            return False, f"An unexpected error occurred while updating image: {e}"
+
     def upload_episode(
         self,
         show_id: str,
@@ -59,17 +72,6 @@ class SpreakerClient:
     ) -> Tuple[bool, str]:
         """
         Uploads an episode to Spreaker.
-
-        Args:
-            show_id: The ID of the show to upload the episode to.
-            title: The title of the episode.
-            file_path: The local path to the final audio file.
-            description: The description or show notes for the episode.
-            auto_published_at: Optional. ISO 8601 formatted datetime string for scheduled publishing.
-            publish_state: Optional. The publishing state of the episode (e.g., 'published', 'unpublished').
-
-        Returns:
-            A tuple containing a boolean for success and a status message.
         """
         endpoint = f"{self.BASE_URL}/shows/{show_id}/episodes"
 
@@ -107,9 +109,6 @@ class SpreakerClient:
     def get_shows(self) -> Tuple[bool, Union[List[Dict], str]]:
         """
         Retrieves a list of shows for the authenticated user from Spreaker.
-
-        Returns:
-            A tuple containing a boolean for success and either a list of show dictionaries or an error message.
         """
         endpoint = f"{self.BASE_URL}/me/shows"
         try:

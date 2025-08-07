@@ -6,17 +6,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { ArrowLeft, Trash2, Loader2, Plus, Image as ImageIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import EditPodcastDialog from "./EditPodcastDialog";
-import NewUserWizard from "./NewUserWizard"; // Import the new wizard
+import NewUserWizard from "./NewUserWizard";
 import { useToast } from "@/hooks/use-toast";
 
+const API_BASE_URL = "http://127.0.0.1:8000"; // Define the base URL for the backend
 
-export default function PodcastManager({ onBack, token, podcasts, setPodcasts, fetchData }) {
+export default function PodcastManager({ onBack, token, podcasts, setPodcasts }) {
   const [showToDelete, setShowToDelete] = useState(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [podcastToEdit, setPodcastToEdit] = useState(null);
-  const [isWizardOpen, setIsWizardOpen] = useState(false); // New state for wizard
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const { toast } = useToast();
 
   const openEditDialog = (podcast) => {
@@ -43,13 +44,12 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts, f
     setShowToDelete(null);
   };
 
-  // New functions for New User Wizard
   const openWizard = () => {
     setIsWizardOpen(true);
   };
 
-  const handleWizardFinish = () => {
-    fetchData(); // Refresh the podcast list
+  const handlePodcastCreated = (newPodcast) => {
+    setPodcasts(prev => [newPodcast, ...prev]);
     setIsWizardOpen(false);
   };
 
@@ -91,10 +91,9 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts, f
             <div className="space-y-4">
               {podcasts.map(podcast => (
                 <Card key={podcast.id} className="flex items-center justify-between p-4">
-                  {/* --- THIS IS THE FIX for displaying the Cover Art --- */}
                   <div className="flex items-center gap-4">
                     {podcast.cover_path ? (
-                      <img src={podcast.cover_path} alt={`${podcast.name} cover`} className="w-16 h-16 rounded-md object-cover"/>
+                      <img src={`${API_BASE_URL}${podcast.cover_path}`} alt={`${podcast.name} cover`} className="w-16 h-16 rounded-md object-cover"/>
                     ) : (
                       <div className="w-16 h-16 rounded-md bg-gray-100 flex items-center justify-center">
                         <ImageIcon className="w-8 h-8 text-gray-400" />
@@ -117,7 +116,7 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts, f
           ) : (
             <div className="text-center py-10">
                 <p className="mb-4">You haven't created any shows yet.</p>
-                <Button onClick={openWizard}> {/* Add onClick handler here */}
+                <Button onClick={openWizard}> 
                     <Plus className="w-4 h-4 mr-2" /> Create Your First Show
                 </Button>
             </div>
@@ -174,7 +173,7 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts, f
         open={isWizardOpen}
         onOpenChange={setIsWizardOpen}
         token={token}
-        onFinish={handleWizardFinish}
+        onPodcastCreated={handlePodcastCreated}
       />
     </div>
   );

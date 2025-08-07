@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.staticfiles import StaticFiles
 import starlette
 
 print(f"Starlette version: {starlette.__version__}")
@@ -17,6 +18,9 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+# Mount the directory for serving uploaded media files
+app.mount("/media_uploads", StaticFiles(directory="media_uploads"), name="media_uploads")
 
 app.add_middleware(
     SessionMiddleware,

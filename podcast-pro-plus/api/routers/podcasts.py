@@ -4,12 +4,16 @@ from uuid import UUID, uuid4
 from sqlmodel import Session, select
 import shutil
 from pathlib import Path
+import logging
 
 from ..core.database import get_session
 from ..models.user import User
 from ..models.podcast import Podcast, PodcastBase, PodcastType
 from ..services.publisher import SpreakerClient
 from .auth import get_current_user
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/podcasts",
@@ -40,56 +44,72 @@ async def create_podcast(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Creates a new podcast show. If the user has a Spreaker token,
-    it creates the show on Spreaker first and links it.
-    """
+    log.info("--- Starting a new podcast creation process ---")
+    log.info(f"Received request to create podcast with name: '{name}'")
+
     spreaker_show_id = None
-    # Check if the user is connected to Spreaker
     if current_user.spreaker_access_token:
+        log.info("User has a Spreaker access token. Proceeding to create show on Spreaker.")
         client = SpreakerClient(api_token=current_user.spreaker_access_token)
-        # Create the show on Spreaker
-        success, result = client.create_show(title=name, description=description)
+        
+        log.info(f"Calling SpreakerClient.create_show with title: '{name}'")
+        success, result = client.create_show(title=name, description=description, language="en")
+        
         if not success:
-            # If it fails, we raise an error so the user knows something went wrong
+            log.error(f"Spreaker API call failed. Result: {result}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to create show on Spreaker: {result}"
             )
-        # Extract the new show_id from the successful Spreaker response
+        
+        log.info(f"Spreaker API call successful. Result: {result}")
         spreaker_show_id = result.get("show_id")
+        
         if not spreaker_show_id:
+            log.error("Spreaker created the show but did not return a valid show_id.")
             raise HTTPException(
-                status_code=status.HTTP_5_00_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Spreaker created the show but did not return a valid ID."
             )
+        log.info(f"Successfully obtained Spreaker Show ID: {spreaker_show_id}")
+    else:
+        log.warning("User does not have a Spreaker access token. Skipping Spreaker show creation.")
 
-    # Now, create the podcast in our local database
+    log.info("Creating podcast in local database.")
     db_podcast = Podcast(
         name=name,
         description=description,
-        spreaker_show_id=spreaker_show_id,  # This will be the new ID from Spreaker or None
+        spreaker_show_id=spreaker_show_id,
         user_id=current_user.id
     )
 
-    if cover_image:
+    if cover_image and cover_image.filename:
+        log.info(f"Cover image provided: '{cover_image.filename}'. Processing file.")
         file_extension = Path(cover_image.filename).suffix
-        # Use a more robust unique filename
         unique_filename = f"{current_user.id}_{uuid4()}{file_extension}"
         save_path = UPLOAD_DIRECTORY / unique_filename
         
         try:
             with save_path.open("wb") as buffer:
                 shutil.copyfileobj(cover_image.file, buffer)
-            # Store a web-accessible path
             db_podcast.cover_path = f"/{UPLOAD_DIRECTORY}/{unique_filename}"
+            log.info(f"Successfully saved cover image to: {save_path}")
+
+            if spreaker_show_id:
+                log.info(f"Uploading cover art to Spreaker for show ID: {spreaker_show_id}")
+                client.update_show_image(show_id=spreaker_show_id, image_file_path=str(save_path))
+
         except Exception as e:
-            # Handle potential file saving errors
-            raise HTTPException(status_code=500, detail=f"Failed to save cover image: {e}")
+            log.error(f"Failed to save or upload cover image: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save or upload cover image: {e}")
+    else:
+        log.info("No cover image was provided.")
 
     session.add(db_podcast)
     session.commit()
     session.refresh(db_podcast)
+    log.info(f"Successfully saved podcast to local database with ID: {db_podcast.id}")
+    log.info("--- Podcast creation process finished ---")
     return db_podcast
 
 
