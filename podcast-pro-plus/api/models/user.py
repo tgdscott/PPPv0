@@ -17,6 +17,7 @@ class UserBase(SQLModel):
     tier: str = Field(default="free")
     spreaker_access_token: Optional[str] = Field(default=None)
     spreaker_refresh_token: Optional[str] = Field(default=None)
+    elevenlabs_api_key: Optional[str] = Field(default=None)
 
 class User(UserBase, table=True):
     """The database model for a User."""

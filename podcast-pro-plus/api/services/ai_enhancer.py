@@ -9,7 +9,7 @@ from ..core.config import settings
 
 # Initialize clients
 openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-elevenlabs_client = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
+
 
 
 class AIEnhancerError(Exception):
@@ -89,7 +89,7 @@ from ..core.config import settings
 
 # Initialize clients
 openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-elevenlabs_client = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
+
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -156,7 +156,11 @@ def get_answer_for_topic(topic: str) -> str:
     except Exception as e:
         raise AIEnhancerError(f"Failed to get answer for topic: {e}")
 
-def generate_speech_from_text(text: str, voice_id: str = "19B4gjtpL5m876wS3Dfg") -> AudioSegment:
+def get_elevenlabs_client(api_key: str) -> ElevenLabs:
+    """Returns an ElevenLabs client initialized with the given API key."""
+    return ElevenLabs(api_key=api_key)
+
+def generate_speech_from_text(text: str, voice_id: str = "19B4gjtpL5m876wS3Dfg", api_key: str = None) -> AudioSegment:
     """Generates an audio segment from text using ElevenLabs."""
     max_retries = 3
     retry_delay_seconds = 300  # 5 minutes

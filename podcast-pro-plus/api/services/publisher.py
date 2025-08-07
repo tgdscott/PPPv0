@@ -16,6 +16,38 @@ class SpreakerClient:
             "Accept": "application/json",
         }
 
+    def create_show(self, title: str, description: Optional[str] = None) -> Tuple[bool, Union[Dict, str]]:
+        """
+        Creates a new show on Spreaker.
+
+        Args:
+            title: The title of the show.
+            description: The description of the show.
+
+        Returns:
+            A tuple containing a boolean for success and either the new show dictionary or an error message.
+        """
+        endpoint = f"{self.BASE_URL}/shows"
+        data = {
+            "title": title,
+        }
+        if description:
+            data["description"] = description
+
+        try:
+            response = requests.post(endpoint, headers=self.headers, data=data)
+            response.raise_for_status()
+            response_data = response.json()
+            show = response_data.get("response", {}).get("show")
+            if show:
+                return True, show
+            else:
+                return False, f"Show creation failed. Spreaker response: {response.text}"
+        except requests.exceptions.RequestException as e:
+            return False, f"An API error occurred while creating show: {e}. Response: {e.response.text if e.response else 'No response'}"
+        except Exception as e:
+            return False, f"An unexpected error occurred while creating show: {e}"
+
     def upload_episode(
         self,
         show_id: str,

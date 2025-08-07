@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from ..core.database import get_session
 from ..core.config import settings
@@ -92,7 +92,20 @@ async def spreaker_callback(request: Request, code: str, state: str, db: Session
     db.commit()
     db.refresh(user)
     
-    return RedirectResponse(url="http://127.0.0.1:5173/dashboard/settings?spreaker_connected=true")
+    return HTMLResponse('''
+        <html>
+            <head>
+                <title>Authentication Successful</title>
+                <script>
+                    window.opener.postMessage("spreaker_connected", "*");
+                    window.close();
+                </script>
+            </head>
+            <body>
+                <p>Authentication successful! You can now close this window.</p>
+            </body>
+        </html>
+    ''')
 
 @router.post("/disconnect", status_code=status.HTTP_200_OK)
 async def disconnect_spreaker(

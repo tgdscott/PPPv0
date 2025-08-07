@@ -6,17 +6,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { ArrowLeft, Trash2, Loader2, Plus, Image as ImageIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import EditPodcastDialog from "./EditPodcastDialog";
-import CreatePodcastDialog from "./CreatePodcastDialog"; // Import the new component
+import NewUserWizard from "./NewUserWizard"; // Import the new wizard
 import { useToast } from "@/hooks/use-toast";
 
 
-export default function PodcastManager({ onBack, token, podcasts, setPodcasts }) {
+export default function PodcastManager({ onBack, token, podcasts, setPodcasts, fetchData }) {
   const [showToDelete, setShowToDelete] = useState(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [podcastToEdit, setPodcastToEdit] = useState(null);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false); // New state for create dialog
+  const [isWizardOpen, setIsWizardOpen] = useState(false); // New state for wizard
   const { toast } = useToast();
 
   const openEditDialog = (podcast) => {
@@ -43,18 +43,14 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
     setShowToDelete(null);
   };
 
-  // New functions for Create Podcast Dialog
-  const openCreateDialog = () => {
-    setIsCreateDialogOpen(true);
+  // New functions for New User Wizard
+  const openWizard = () => {
+    setIsWizardOpen(true);
   };
 
-  const closeCreateDialog = () => {
-    setIsCreateDialogOpen(false);
-  };
-
-  const handleCreatePodcast = (newPodcast) => {
-    setPodcasts(prev => [...prev, newPodcast]);
-    closeCreateDialog();
+  const handleWizardFinish = () => {
+    fetchData(); // Refresh the podcast list
+    setIsWizardOpen(false);
   };
 
   const handleDeleteShow = async () => {
@@ -121,7 +117,7 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
           ) : (
             <div className="text-center py-10">
                 <p className="mb-4">You haven't created any shows yet.</p>
-                <Button onClick={openCreateDialog}> {/* Add onClick handler here */}
+                <Button onClick={openWizard}> {/* Add onClick handler here */}
                     <Plus className="w-4 h-4 mr-2" /> Create Your First Show
                 </Button>
             </div>
@@ -173,15 +169,13 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
         />
       )}
 
-      {/* Create Podcast Dialog */}
-      {isCreateDialogOpen && (
-        <CreatePodcastDialog
-          isOpen={isCreateDialogOpen}
-          onClose={closeCreateDialog}
-          onSave={handleCreatePodcast}
-          token={token}
-        />
-      )}
+      {/* New User Wizard */}
+      <NewUserWizard
+        open={isWizardOpen}
+        onOpenChange={setIsWizardOpen}
+        token={token}
+        onFinish={handleWizardFinish}
+      />
     </div>
   );
 }

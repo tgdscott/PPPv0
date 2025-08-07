@@ -196,7 +196,7 @@ export default function PodcastPlusDashboard() {
       case 'episodeHistory':
         return <EpisodeHistory onBack={handleBackToDashboard} token={token} />;
       case 'podcastManager':
-        return <PodcastManager onBack={handleBackToDashboard} token={token} podcasts={podcasts} setPodcasts={setPodcasts}/>;
+        return <PodcastManager onBack={handleBackToDashboard} token={token} podcasts={podcasts} setPodcasts={setPodcasts} fetchData={fetchData}/>;
       case 'rssImporter':
         return <RssImporter onBack={handleBackToDashboard} token={token} />;
       case 'devTools':
