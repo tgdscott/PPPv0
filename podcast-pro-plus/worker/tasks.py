@@ -44,7 +44,7 @@ celery_app.conf.update(
 )
 
 @celery_app.task(name="create_podcast_episode")
-def create_podcast_episode(template_id: str, main_content_filename: str, output_filename: str, tts_values: dict, episode_details: dict, user_id: str, podcast_id: str, spreaker_show_id: Optional[str] = None, spreaker_access_token: Optional[str] = None, auto_published_at: Optional[str] = None):
+def create_podcast_episode(episode_id: str, template_id: str, main_content_filename: str, output_filename: str, tts_values: dict, episode_details: dict, user_id: str, podcast_id: str, spreaker_show_id: Optional[str] = None, spreaker_access_token: Optional[str] = None, auto_published_at: Optional[str] = None):
     """
     Celery task to process and assemble a podcast episode.
     This task will run in the background and handle the entire audio processing workflow.
@@ -54,7 +54,7 @@ def create_podcast_episode(template_id: str, main_content_filename: str, output_
     
     # Change the current working directory to the `podcast-pro-plus` directory
     # so that all the relative paths used by the services work correctly.
-    os.chdir(PROJECT_ROOT / "podcast-pro-plus")
+    os.chdir(PROJECT_ROOT)
     
     logging.info(f"Changing working directory to: {os.getcwd()}")
     
@@ -77,22 +77,12 @@ def create_podcast_episode(template_id: str, main_content_filename: str, output_
         if not template:
             raise Exception("Template not found")
 
-        # Create a new episode record in the database
-        new_episode = Episode(
-            user_id=UUID(user_id),
-            template_id=UUID(template_id),
-            podcast_id=UUID(podcast_id),
-            title=episode_details.get('title', output_filename),
-            description=episode_details.get('description', ''),
-            season_number=episode_details.get('season'),
-            episode_number=episode_details.get('episodeNumber'),
-            status="processing"
-        )
-        db.add(new_episode)
-        db.commit()
-        db.refresh(new_episode)
-        
-        logging.info(f"Episode record created with ID: {new_episode.id}")
+        # Get the existing episode from the database
+        episode = crud.get_episode_by_id(db, UUID(episode_id))
+        if not episode:
+            raise Exception(f"Episode with ID {episode_id} not found.")
+
+        logging.info(f"Updating existing episode record with ID: {episode.id}")
 
         # Call the audio processing function
         final_path, log = audio_processor.process_and_assemble_episode(
@@ -100,26 +90,28 @@ def create_podcast_episode(template_id: str, main_content_filename: str, output_
             main_content_filename=main_content_filename,
             output_filename=output_filename,
             cleanup_options={},  # Add cleanup options if needed
-            tts_overrides=tts_values
+            tts_overrides=tts_values,
+            cover_image_path=episode_details.get('cover_image_path') # Pass cover image path
         )
 
         # Update the episode status to "processed"
-        new_episode.status = "processed"
-        new_episode.final_audio_path = str(final_path)
-        db.add(new_episode)
+        episode.status = "processed"
+        episode.final_audio_path = str(final_path)
+        episode.cover_path = episode_details.get('cover_image_path') # Update cover path
+        db.add(episode)
         db.commit()
-        
+
         logging.info(f"Episode assembly finished successfully for {output_filename}")
         logging.info(f"Log: {''.join(log)}")
 
-        return {"message": "Episode assembled successfully!", "episode_id": new_episode.id, "log": log}
+        return {"message": "Episode assembled successfully!", "episode_id": episode.id, "log": log}
 
     except Exception as e:
         logging.error(f"Error during episode assembly for {output_filename}: {e}", exc_info=True)
         # Update the episode status to "error"
-        if 'new_episode' in locals() and new_episode.id:
-            new_episode.status = "error"
-            db.add(new_episode)
+        if 'episode' in locals() and episode.id:
+            episode.status = "error"
+            db.add(episode)
             db.commit()
         # Re-raise the exception so Celery knows the task failed
         raise
@@ -127,11 +119,11 @@ def create_podcast_episode(template_id: str, main_content_filename: str, output_
         db.close()
 
 @celery_app.task(name="publish_episode_to_spreaker_task")
-def publish_episode_to_spreaker_task(episode_id: str, spreaker_show_id: str, title: str, description: Optional[str], auto_published_at: Optional[str], spreaker_access_token: str):
+def publish_episode_to_spreaker_task(episode_id: str, spreaker_show_id: str, title: str, description: Optional[str], auto_published_at: Optional[str], spreaker_access_token: str, publish_state: str):
     """
     Celery task to publish an episode to Spreaker.
     """
-    os.chdir(PROJECT_ROOT / "podcast-pro-plus")
+    os.chdir(PROJECT_ROOT)
     logging.info(f"Changing working directory to: {os.getcwd()}")
 
     from api.core.database import get_session
@@ -160,7 +152,8 @@ def publish_episode_to_spreaker_task(episode_id: str, spreaker_show_id: str, tit
                 title=title,
                 file_path=episode.final_audio_path,
                 description=description,
-                auto_published_at=auto_published_at
+                auto_published_at=auto_published_at,
+                publish_state=publish_state
             )
         else:
             # Publish the episode immediately
@@ -168,7 +161,8 @@ def publish_episode_to_spreaker_task(episode_id: str, spreaker_show_id: str, tit
                 show_id=spreaker_show_id,
                 title=title,
                 file_path=episode.final_audio_path,
-                description=description
+                description=description,
+                publish_state=publish_state
             )
 
         if success:

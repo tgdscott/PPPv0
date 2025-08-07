@@ -18,5 +18,15 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    // Add a fallback for HTML5 history API routing
+    // This ensures that all non-API requests are served by index.html
+    middleware: [
+      (req, res, next) => {
+        if (!req.url.startsWith('/api') && !req.url.includes('.')) {
+          req.url = '/'; // Rewrite to root to serve index.html
+        }
+        next();
+      },
+    ],
   },
 })

@@ -48,7 +48,8 @@ def process_and_assemble_episode(
     main_content_filename: str,
     output_filename: str,
     cleanup_options: Dict[str, bool],
-    tts_overrides: Dict[str, str]
+    tts_overrides: Dict[str, str],
+    cover_image_path: Optional[str] = None
 ) -> Tuple[Path, List[str]]:
     """
     The master function for the entire episode creation workflow.
@@ -57,6 +58,8 @@ def process_and_assemble_episode(
     total_start_time = time.time()
     start_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log.append(f"Workflow started at {start_timestamp}")
+    if cover_image_path:
+        log.append(f"Cover image path: {cover_image_path}")
 
     # --- Step 1: Load Main Content & Get Initial Transcript ---
     step_start_time = time.time()
@@ -84,42 +87,7 @@ def process_and_assemble_episode(
     log.append(f"Saved cleaned content to {cleaned_filename}")
     log.append(f"[TIMING] Content cleanup took {time.time() - step_start_time:.2f}s")
 
-    # --- Step 3: Final Transcript for AI Context & Saving ---
-    # We use the original word_timestamps to build the final transcript
-    final_transcript_text = " ".join([word['word'] for word in word_timestamps])
-    
-    # Sanitize output_filename for file system compatibility
-    sanitized_output_filename = re.sub(r'[<>:"/\\|?*\s]+', '-', output_filename).lower()
-    transcript_filename = f"{sanitized_output_filename}.txt"
-    transcript_path = TRANSCRIPTS_DIR / transcript_filename
-    with open(transcript_path, "w", encoding="utf-8") as f:
-        # Group words into sentences or phrases for a cleaner transcript
-        current_line = ""
-        line_start_time = 0
-        for i in range(len(word_timestamps)):
-            word_data = word_timestamps[i]
-            if not current_line:
-                line_start_time = word_data['start']
-            
-            current_line += word_data['word'] + " "
-            
-            # End line after about 15 words or if there's a long pause
-            is_last_word = (i == len(word_timestamps) - 1)
-            long_pause = False
-            if not is_last_word:
-                pause = word_timestamps[i+1]['start'] - word_data['end']
-                if pause > 0.7:
-                    long_pause = True
-
-            if len(current_line.split()) >= 15 or is_last_word or long_pause:
-                line_end_time = word_data['end']
-                f.write(f"[{_format_timestamp(line_start_time)} --> {_format_timestamp(line_end_time)}]\n")
-                f.write(f"{current_line.strip()}\n\n")
-                current_line = ""
-
-    log.append(f"Saved final timestamped transcript to {transcript_filename}")
-
-    # --- Step 4: Prepare Template Segments ---
+    # --- Step 3: Prepare Template Segments ---
     step_start_time = time.time()
     # Parse segments, background music rules, and timing from JSON strings
     template_segments = [TemplateSegment.model_validate(s) for s in json.loads(template.segments_json)]
@@ -149,6 +117,53 @@ def process_and_assemble_episode(
         if audio:
             processed_segments.append((segment_rule, audio))
     log.append(f"[TIMING] Template segments prepared in {time.time() - step_start_time:.2f}s")
+
+    intros = [audio for rule, audio in processed_segments if rule.segment_type == 'intro']
+    stitched_intros = sum(intros) if intros else AudioSegment.empty()
+    intro_len_ms = len(stitched_intros)
+
+    # --- Step 4: Final Transcript for AI Context & Saving ---
+    # We use the original word_timestamps to build the final transcript
+    final_transcript_text = " ".join([word['word'] for word in word_timestamps])
+    
+    # Calculate the intro length in seconds
+    intro_length_seconds = intro_len_ms / 1000.0
+
+    # Sanitize output_filename for file system compatibility
+    sanitized_output_filename = re.sub(r'[<>:"/\\|?*\s]+', '-', output_filename).lower()
+    transcript_filename = f"{sanitized_output_filename}.txt"
+    transcript_path = TRANSCRIPTS_DIR / transcript_filename
+    with open(transcript_path, "w", encoding="utf-8") as f:
+        # Group words into sentences or phrases for a cleaner transcript
+        current_line = ""
+        line_start_time = 0
+        for i in range(len(word_timestamps)):
+            word_data = word_timestamps[i]
+            
+            # Apply time shift to timestamps
+            shifted_start_s = word_data['start'] + intro_length_seconds
+            shifted_end_s = word_data['end'] + intro_length_seconds
+
+            if not current_line:
+                line_start_time = shifted_start_s
+            
+            current_line += word_data['word'] + " "
+            
+            # End line after about 15 words or if there's a long pause
+            is_last_word = (i == len(word_timestamps) - 1)
+            long_pause = False
+            if not is_last_word:
+                pause = word_timestamps[i+1]['start'] - word_data['end']
+                if pause > 0.7:
+                    long_pause = True
+
+            if len(current_line.split()) >= 15 or is_last_word or long_pause:
+                line_end_time = shifted_end_s
+                f.write(f"[{_format_timestamp(line_start_time)} --> {_format_timestamp(line_end_time)}]\n")
+                f.write(f"{current_line.strip()}\n\n")
+                current_line = ""
+
+    log.append(f"Saved final timestamped transcript to {transcript_filename}")
 
     # --- Step 5: Stitch with Overlaps & Apply Music ---
     step_start_time = time.time()
@@ -198,7 +213,18 @@ def process_and_assemble_episode(
     step_start_time = time.time()
     final_audio = normalize(final_audio)
     output_path = OUTPUT_DIR / f"{sanitized_output_filename}.mp3" # Use sanitized_output_filename here
-    final_audio.export(output_path, format="mp3")
+    
+    # Export with cover image if provided
+    if cover_image_path and Path(cover_image_path).exists():
+        try:
+            final_audio.export(output_path, format="mp3", tags={'album_art': cover_image_path})
+            log.append(f"Exported final audio with cover image to {output_path}")
+        except Exception as e:
+            log.append(f"WARNING: Failed to embed cover image {cover_image_path}: {e}. Exporting without cover.")
+            final_audio.export(output_path, format="mp3")
+    else:
+        final_audio.export(output_path, format="mp3")
+    
     log.append(f"[TIMING] Final normalization and export took {time.time() - step_start_time:.2f}s")
     
     log.append(f"--- Workflow Finished. Total time: {time.time() - total_start_time:.2f}s ---")

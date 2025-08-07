@@ -24,11 +24,23 @@ class EpisodeStatus(str, Enum):
     published = "published"
     error = "error"
 
+from enum import Enum
+
+class PodcastType(str, Enum):
+    episodic = "episodic"
+    serial = "serial"
+
 class PodcastBase(SQLModel):
     name: str
     description: Optional[str] = None
     cover_path: Optional[str] = None
     rss_url: Optional[str] = Field(default=None, index=True)
+    podcast_type: Optional[PodcastType] = Field(default=None)
+    language: Optional[str] = None
+    copyright_line: Optional[str] = None
+    owner_name: Optional[str] = None
+    author_name: Optional[str] = None
+    spreaker_show_id: Optional[str] = None
 
 class Podcast(PodcastBase, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True, index=True)

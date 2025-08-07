@@ -5,6 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { ArrowLeft, Trash2, Loader2, Plus, Image as ImageIcon } from "lucide-react";
 import { useState, useEffect } from "react";
+import EditPodcastDialog from "./EditPodcastDialog";
+import CreatePodcastDialog from "./CreatePodcastDialog"; // Import the new component
 import { useToast } from "@/hooks/use-toast";
 
 
@@ -12,7 +14,25 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
   const [showToDelete, setShowToDelete] = useState(null);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [podcastToEdit, setPodcastToEdit] = useState(null);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false); // New state for create dialog
   const { toast } = useToast();
+
+  const openEditDialog = (podcast) => {
+    setPodcastToEdit(podcast);
+    setIsEditDialogOpen(true);
+  };
+
+  const closeEditDialog = () => {
+    setPodcastToEdit(null);
+    setIsEditDialogOpen(false);
+  };
+
+  const handleEditPodcast = (updatedPodcast) => {
+    setPodcasts(prev => prev.map(p => p.id === updatedPodcast.id ? updatedPodcast : p));
+    closeEditDialog();
+  };
 
   const openDeleteDialog = (podcast) => {
     setShowToDelete(podcast);
@@ -21,6 +41,20 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
 
   const closeDeleteDialog = () => {
     setShowToDelete(null);
+  };
+
+  // New functions for Create Podcast Dialog
+  const openCreateDialog = () => {
+    setIsCreateDialogOpen(true);
+  };
+
+  const closeCreateDialog = () => {
+    setIsCreateDialogOpen(false);
+  };
+
+  const handleCreatePodcast = (newPodcast) => {
+    setPodcasts(prev => [...prev, newPodcast]);
+    closeCreateDialog();
   };
 
   const handleDeleteShow = async () => {
@@ -76,7 +110,7 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
                     </div>
                   </div>
                   <div className="space-x-2">
-                    <Button variant="outline" size="sm">Edit</Button>
+                    <Button variant="outline" size="sm" onClick={() => openEditDialog(podcast)}>Edit</Button>
                     <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(podcast)}>
                         <Trash2 className="w-4 h-4 mr-2" /> Delete
                     </Button>
@@ -87,7 +121,7 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
           ) : (
             <div className="text-center py-10">
                 <p className="mb-4">You haven't created any shows yet.</p>
-                <Button>
+                <Button onClick={openCreateDialog}> {/* Add onClick handler here */}
                     <Plus className="w-4 h-4 mr-2" /> Create Your First Show
                 </Button>
             </div>
@@ -116,7 +150,7 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDeleteDialog}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={closeDeleteDialog}>Cancel</Button>
             <Button
               variant="destructive"
               disabled={deleteConfirmationText !== 'delete' || isDeleting}
@@ -127,6 +161,27 @@ export default function PodcastManager({ onBack, token, podcasts, setPodcasts })
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Podcast Dialog */}
+      {isEditDialogOpen && podcastToEdit && (
+        <EditPodcastDialog
+          isOpen={isEditDialogOpen}
+          onClose={closeEditDialog}
+          podcast={podcastToEdit}
+          onSave={handleEditPodcast}
+          token={token}
+        />
+      )}
+
+      {/* Create Podcast Dialog */}
+      {isCreateDialogOpen && (
+        <CreatePodcastDialog
+          isOpen={isCreateDialogOpen}
+          onClose={closeCreateDialog}
+          onSave={handleCreatePodcast}
+          token={token}
+        />
+      )}
     </div>
   );
 }

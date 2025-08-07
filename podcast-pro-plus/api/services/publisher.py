@@ -23,6 +23,7 @@ class SpreakerClient:
         file_path: str,
         description: Optional[str] = None,
         auto_published_at: Optional[str] = None, # ISO 8601 format for scheduled publishing
+        publish_state: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         Uploads an episode to Spreaker.
@@ -33,6 +34,7 @@ class SpreakerClient:
             file_path: The local path to the final audio file.
             description: The description or show notes for the episode.
             auto_published_at: Optional. ISO 8601 formatted datetime string for scheduled publishing.
+            publish_state: Optional. The publishing state of the episode (e.g., 'published', 'unpublished').
 
         Returns:
             A tuple containing a boolean for success and a status message.
@@ -46,6 +48,8 @@ class SpreakerClient:
             data["description"] = description
         if auto_published_at:
             data["auto_published_at"] = auto_published_at
+        if publish_state:
+            data["publish_state"] = publish_state
 
         try:
             with open(file_path, "rb") as audio_file:

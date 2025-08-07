@@ -29,6 +29,9 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
   const [uploadedFilename, setUploadedFilename] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isAssembling, setIsAssembling] = useState(false)
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [assemblyComplete, setAssemblyComplete] = useState(false)
+  const [assembledEpisode, setAssembledEpisode] = useState(null)
   const [statusMessage, setStatusMessage] = useState('')
   const [error, setError] = useState('')
   const [ttsValues, setTtsValues] = useState({})
@@ -104,9 +107,9 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
           headers: { 'Authorization': `Bearer ${token}` },
         });
         if (!response.ok) {
-          // Stop polling if the job is not found or there's a server error
           clearInterval(interval);
           setError('Could not retrieve episode status.');
+          setIsAssembling(false);
           return;
         }
         const data = await response.json();
@@ -116,9 +119,10 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
           clearInterval(interval);
           setIsAssembling(false);
           if (data.status === 'processed') {
-            setCurrentStep(6); // Success step
-            setStatusMessage('Episode assembly has been queued.'); // Corrected message
-            toast({ title: "Success!", description: "Your episode has been assembled and queued for publishing." });
+            setAssemblyComplete(true);
+            setAssembledEpisode(data.episode);
+            setStatusMessage('Episode assembled successfully!');
+            toast({ title: "Success!", description: "Your episode is ready for review." });
           } else {
             setError(data.error || 'An error occurred during processing.');
             toast({ variant: "destructive", title: "Error", description: data.error || 'An error occurred during processing.' });
@@ -131,16 +135,16 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
       }
     }, 5000); // Poll every 5 seconds
 
-    return () => clearInterval(interval); // Cleanup on component unmount
+    return () => clearInterval(interval);
   }, [jobId, token]);
 
   const steps = [
     { number: 1, title: "Select Template", icon: BookText },
     { number: 2, title: "Upload Content", icon: FileUp },
-    { number: 3, title: "Assemble Episode", icon: Wand2 },
-    { number: 4, title: "Episode Details", icon: Settings },
-    { number: 5, title: "Publishing", icon: Globe },
-    { number: 6, title: "Done!", icon: CheckCircle },
+    { number: 3, title: "Customize Episode", icon: Wand2 },
+    { number: 4, title: "Final Details", icon: Settings },
+    { number: 5, title: "Assemble & Review", icon: Globe },
+    { number: 6, title: "Published", icon: CheckCircle },
   ];
 
   const progressPercentage = ((currentStep - 1) / (steps.length - 1)) * 100;
@@ -202,7 +206,7 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
     setEpisodeDetails(prev => ({ ...prev, [field]: value }))
   }
 
-  const handlePublish = async () => {
+  const handleAssemble = async () => {
     if (!uploadedFilename || !selectedTemplate || !episodeDetails.title) {
         setError("A template, title, and audio file are required.");
         return;
@@ -224,8 +228,6 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
                 output_filename: episodeDetails.title.toLowerCase().replace(/\s+/g, '-'),
                 tts_values: ttsValues,
                 episode_details: episodeDetails,
-                spreaker_show_id: selectedSpreakerShow,
-                auto_published_at: episodeDetails.publishDate && episodeDetails.publishTime ? `${episodeDetails.publishDate}T${episodeDetails.publishTime}:00Z` : null,
             }),
         });
 
@@ -237,7 +239,6 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
         const result = await response.json();
         setJobId(result.job_id);
         setStatusMessage(`Episode assembly has been queued. Job ID: ${result.job_id}`);
-        setCurrentStep(5); // Stay on the publish step to show progress
     } catch (err) {
         setError(err.message);
         setStatusMessage('');
@@ -245,7 +246,46 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
     }
   };
 
-  
+  const handlePublish = async () => {
+    if (!assembledEpisode || !selectedSpreakerShow) {
+      setError("Assembled episode and a Spreaker show must be selected.");
+      return;
+    }
+    setIsPublishing(true);
+    setStatusMessage('Publishing your episode...');
+    setError('');
+
+    try {
+      const response = await fetch(`/api/episodes/${assembledEpisode.id}/publish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          spreaker_show_id: selectedSpreakerShow,
+          publish_state: 'unpublished',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to publish episode.');
+      }
+
+      const result = await response.json();
+      setStatusMessage(result.message || 'Episode has been sent to Spreaker as unpublished.');
+      toast({ title: "Success!", description: "Your episode has been published." });
+      setCurrentStep(6);
+
+    } catch (err) {
+      setError(err.message);
+      setStatusMessage('');
+      toast({ variant: "destructive", title: "Error", description: err.message });
+    } finally {
+      setIsPublishing(false);
+    }
+  };
 
   const canProceedToStep5 = episodeDetails.title.trim() && episodeDetails.season.trim() && episodeDetails.episodeNumber.trim()
 
@@ -300,7 +340,7 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
             </div>
           </div>
         )
-      case 3: { // Assemble Episode
+      case 3: { // Customize Episode
         const getSegmentContent = (segment) => {
           if (segment.segment_type === 'content') {
             return (
@@ -344,7 +384,7 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
         return (
           <div className="space-y-8">
             <CardHeader className="text-center">
-              <CardTitle style={{ color: "#2C3E50" }}>Step 3: Assemble Your Episode</CardTitle>
+              <CardTitle style={{ color: "#2C3E50" }}>Step 3: Customize Your Episode</CardTitle>
               <p className="text-md text-gray-500 pt-2">Review the structure and fill in the required text for any AI-generated segments.</p>
             </CardHeader>
             <Card className="border-0 shadow-lg bg-white">
@@ -372,10 +412,10 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
           </div>
         );
       }
-      case 4: // Episode Details
+      case 4: // Final Details
         return (
           <div className="space-y-8">
-            <CardHeader className="text-center"><CardTitle style={{ color: "#2C3E50" }}>Step 4: Episode Details</CardTitle></CardHeader>
+            <CardHeader className="text-center"><CardTitle style={{ color: "#2C3E50" }}>Step 4: Final Details</CardTitle></CardHeader>
             <Card className="border-0 shadow-lg bg-white">
               <CardContent className="p-6 space-y-6">
                 <div className="grid md:grid-cols-3 gap-6">
@@ -418,21 +458,57 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
             </Card>
             <div className="flex justify-between pt-8">
               <Button onClick={() => setCurrentStep(3)} variant="outline" size="lg"><ArrowLeft className="w-5 h-5 mr-2" />Back</Button>
-              <Button onClick={() => setCurrentStep(5)} disabled={!canProceedToStep5} size="lg" className="px-8 py-3 text-lg font-semibold text-white" style={{ backgroundColor: "#2C3E50" }}>Continue to Publish<ArrowLeft className="w-5 h-5 ml-2 rotate-180" /></Button>
+              <Button onClick={() => setCurrentStep(5)} disabled={!canProceedToStep5} size="lg" className="px-8 py-3 text-lg font-semibold text-white" style={{ backgroundColor: "#2C3E50" }}>Assemble & Review<ArrowLeft className="w-5 h-5 ml-2 rotate-180" /></Button>
             </div>
           </div>
         )
-      case 5: // Publishing
-        return (
-          <div className="space-y-8">
-            <CardHeader className="text-center"><CardTitle style={{ color: "#2C3E50" }}>Step 5: Publishing</CardTitle></CardHeader>
-            <Card className="border-0 shadow-lg bg-white">
-              <CardContent className="p-6 space-y-6">
-                
-                {spreakerShows.length > 0 && (
+      case 5: // Assemble & Review
+        if (!assemblyComplete) {
+          return (
+            <div className="space-y-8">
+              <CardHeader className="text-center"><CardTitle style={{ color: "#2C3E50" }}>Step 5: Assemble Episode</CardTitle></CardHeader>
+              <Card className="border-0 shadow-lg bg-white">
+                <CardContent className="p-6 space-y-6 text-center">
+                  {isAssembling ? (
+                    <div>
+                      <Loader2 className="w-16 h-16 mx-auto text-blue-600 animate-spin" />
+                      <p className="text-xl font-semibold text-blue-600 mt-4">Assembling your episode...</p>
+                      <p className="text-gray-600 mt-2">{statusMessage}</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-lg text-gray-700 mb-4">Your episode is ready to be assembled.</p>
+                      <Button onClick={handleAssemble} size="lg" className="w-full max-w-xs mx-auto px-12 py-4 text-xl font-semibold text-white" style={{ backgroundColor: "#2C3E50" }}>
+                        Assemble Episode
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+               <div className="flex justify-between pt-8">
+                <Button onClick={() => setCurrentStep(4)} variant="outline" size="lg" disabled={isAssembling}><ArrowLeft className="w-5 h-5 mr-2" />Back to Details</Button>
+              </div>
+            </div>
+          );
+        } else {
+          return (
+            <div className="space-y-8">
+              <CardHeader className="text-center"><CardTitle style={{ color: "#2C3E50" }}>Step 5: Review & Publish</CardTitle></CardHeader>
+              <Card className="border-0 shadow-lg bg-white">
+                <CardContent className="p-6 space-y-6">
+                  <h3 className="text-2xl font-bold">{assembledEpisode.title}</h3>
+                  <p className="text-gray-600">{assembledEpisode.description}</p>
+                  {assembledEpisode.final_audio_url && (
+                    <div className="mt-4">
+                      <Label>Listen to the final episode:</Label>
+                      <audio controls src={assembledEpisode.final_audio_url} className="w-full mt-2">
+                        Your browser does not support the audio element.
+                      </audio>
+                    </div>
+                  )}
                   <div className="space-y-4">
                     <Label htmlFor="spreaker-show">Select a show to publish to:</Label>
-                    <Select onValueChange={setSelectedSpreakerShow}>
+                    <Select onValueChange={setSelectedSpreakerShow} defaultValue={selectedSpreakerShow}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a show..." />
                       </SelectTrigger>
@@ -442,26 +518,20 @@ export default function PodcastCreator({ onBack, token, templates, podcasts }) {
                         ))}
                       </SelectContent>
                     </Select>
-
-
-                    <Button onClick={handlePublish} size="lg" className="w-full px-12 py-4 text-xl font-semibold text-white" style={{ backgroundColor: "#2C3E50" }} disabled={isAssembling || !selectedSpreakerShow}>
-                      {isAssembling ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Assembling...</> : "🚀 Publish to Spreaker"}
+                    <Button onClick={handlePublish} size="lg" className="w-full px-12 py-4 text-xl font-semibold text-white" style={{ backgroundColor: "#2C3E50" }} disabled={isPublishing || !selectedSpreakerShow}>
+                      {isPublishing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Publishing...</> : "🚀 Publish to Spreaker"}
                     </Button>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-            <div className="flex justify-between pt-8">
-              <Button onClick={() => setCurrentStep(4)} variant="outline" size="lg"><ArrowLeft className="w-5 h-5 mr-2" />Back</Button>
-              <Button onClick={() => setCurrentStep(6)} size="lg" className="px-8 py-3 text-lg font-semibold text-white" style={{ backgroundColor: "#2C3E50" }}>Continue to Done!<ArrowLeft className="w-5 h-5 ml-2 rotate-180" /></Button>
+                </CardContent>
+              </Card>
             </div>
-          </div>
-        );
-       case 6: // Success
+          );
+        }
+       case 6: // Published
         return (
              <div className="text-center space-y-6">
                 <CheckCircle className="w-24 h-24 mx-auto text-green-500" />
-                <h2 className="text-3xl font-bold" style={{ color: "#2C3E50" }}>Episode Queued for Publishing!</h2>
+                <h2 className="text-3xl font-bold" style={{ color: "#2C3E50" }}>Episode Published!</h2>
                 <p className="text-lg text-gray-600">{statusMessage}</p>
                 <Button onClick={onBack} size="lg">Back to Dashboard</Button>
              </div>

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -45,14 +45,20 @@ export default function EpisodeHistory({ onBack, token }) {
   });
   const { toast } = useToast();
 
-  const fetchEpisodes = async () => {
-    setIsLoading(true);
+  const fetchEpisodes = useCallback(async (isPolling = false) => {
+    if (!isPolling) {
+      console.log("fetchEpisodes: Starting initial fetch...");
+      setIsLoading(true);
+    } else {
+      console.log("fetchEpisodes: Starting polling fetch...");
+    }
     try {
       const response = await fetch('/api/episodes/', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Failed to fetch episode history.');
       let data = await response.json();
+      console.log("fetchEpisodes: Received data:", data);
       
       // Sort episodes by publish_at, then processed_at, then created_at, newest first
       data.sort((a, b) => {
@@ -74,15 +80,34 @@ export default function EpisodeHistory({ onBack, token }) {
         }
       });
 
-      setEpisodes(data);
+      // Only update state if data has actually changed to prevent unnecessary re-renders
+      const hasDataChanged = data.length !== episodes.length || data.some((newEp, index) => {
+        const oldEp = episodes[index];
+        // Compare relevant properties for changes
+        return newEp.id !== oldEp.id || newEp.status !== oldEp.status || newEp.title !== oldEp.title || newEp.description !== oldEp.description || newEp.final_audio_path !== oldEp.final_audio_path || newEp.cover_path !== oldEp.cover_path; // Add more properties if needed
+      });
+      console.log("fetchEpisodes: hasDataChanged =", hasDataChanged);
+
+      if (hasDataChanged) {
+        console.log("fetchEpisodes: Updating episodes state.");
+        setEpisodes(data);
+      } else {
+        console.log("fetchEpisodes: No significant data change, skipping state update.");
+      }
       return data; // Return data to be used in useEffect
     } catch (err) {
+      console.error("fetchEpisodes: Error during fetch:", err);
       setError(err.message);
       return []; // Return empty array on error
     } finally {
-      setIsLoading(false);
+      if (!isPolling) {
+        setIsLoading(false);
+        console.log("fetchEpisodes: Initial fetch complete.");
+      } else {
+        console.log("fetchEpisodes: Polling fetch complete.");
+      }
     }
-  };
+  }, [token, episodes]); // Add episodes to dependency array
 
   const fetchSpreakerShows = async () => {
     try {
@@ -114,29 +139,39 @@ export default function EpisodeHistory({ onBack, token }) {
   };
 
   useEffect(() => {
-    let intervalId;
+    let intervalId = null;
 
-    const pollEpisodes = async () => {
-      const data = await fetchEpisodes();
-      const hasProcessingEpisodes = data.some(ep => ep.status === "processing");
-      if (hasProcessingEpisodes && !intervalId) {
-        intervalId = setInterval(fetchEpisodes, 5000);
-      } else if (!hasProcessingEpisodes && intervalId) {
+    const startPolling = () => {
+      if (!intervalId) {
+        intervalId = setInterval(() => fetchEpisodes(true), 15000); // Pass true for polling, increased interval
+      }
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
       }
     };
 
-    if (token) {
-      pollEpisodes(); // Initial fetch and start polling if needed
-    }
-
-    return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
+    const initFetchAndPoll = async () => {
+      if (token) {
+        const data = await fetchEpisodes(false); // Initial fetch, not polling
+        const hasProcessingOrErrorEpisodes = data.some(ep => ep.status === "processing" || ep.status === "error");
+        if (hasProcessingOrErrorEpisodes) {
+          startPolling();
+        } else {
+          stopPolling();
+        }
       }
     };
-  }, [token]); // Only depend on token
+
+    initFetchAndPoll();
+
+    return () => {
+      stopPolling();
+    };
+  }, [token, fetchEpisodes]);
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -185,15 +220,22 @@ export default function EpisodeHistory({ onBack, token }) {
 
   const handleDeleteEpisode = async (episodeId) => {
     if (!window.confirm("Are you sure you want to delete this episode? This cannot be undone.")) return;
+    console.log(`Attempting to delete episode with ID: ${episodeId}`);
     try {
       const response = await fetch(`/api/episodes/${episodeId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!response.ok) throw new Error('Failed to delete episode.');
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Delete failed:", errorData);
+        throw new Error(errorData.detail || 'Failed to delete episode.');
+      }
+      console.log(`Episode ${episodeId} deleted successfully from backend.`);
       toast({ title: "Success", description: "Episode deleted." });
       fetchEpisodes(); // Re-fetch episodes after deletion
     } catch (err) {
+      console.error("Error deleting episode:", err);
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   };

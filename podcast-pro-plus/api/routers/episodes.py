@@ -85,6 +85,7 @@ async def assemble_episode_endpoint(
         # Dispatch the task to the Celery worker
         print("DEBUG: Attempting to dispatch Celery task.")
         task = create_podcast_episode.delay(
+            episode_id=str(new_episode.id),
             template_id=str(template.id),
             main_content_filename=body.main_content_filename,
             output_filename=body.output_filename,
@@ -132,34 +133,58 @@ async def generate_metadata_endpoint(filename: str, current_user: User = Depends
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
-@router.post("/publish/spreaker/{episode_id}", status_code=status.HTTP_202_ACCEPTED)
-async def publish_to_spreaker(
+@router.post("/publish/{episode_id}", status_code=status.HTTP_202_ACCEPTED)
+async def publish_episode(
     episode_id: UUID,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    show_id: str = Body(..., embed=True),
-    title: str = Body(..., embed=True),
-    description: Optional[str] = Body(None, embed=True),
-    auto_published_at: Optional[str] = Body(None, embed=True)
+    spreaker_show_id: str = Body(..., embed=True),
+    publish_state: str = Body(..., embed=True)
 ):
     if not current_user.spreaker_access_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Spreaker not authenticated for this user.")
 
-    # Find the episode by ID
-    episode = session.get(Episode, episode_id)
+    episode = crud.get_episode_by_id(session, episode_id)
     if not episode or episode.user_id != current_user.id:
         raise HTTPException(status_code=404, detail=f"Episode with id '{episode_id}' not found.")
 
-    # Dispatch the task to the Celery worker
     try:
         task = publish_episode_to_spreaker_task.delay(
             episode_id=str(episode.id),
-            spreaker_show_id=show_id,
-            title=title,
-            description=description,
-            auto_published_at=auto_published_at,
-            spreaker_access_token=current_user.spreaker_access_token
+            spreaker_show_id=spreaker_show_id,
+            title=episode.title,
+            description=episode.description,
+            auto_published_at=None, # Scheduling is not implemented yet
+            spreaker_access_token=current_user.spreaker_access_token,
+            publish_state=publish_state
         )
         return {"message": "Episode publishing to Spreaker has been queued.", "job_id": task.id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to queue Spreaker publishing task: {e}")
+
+@router.delete("/{episode_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_episode(
+    episode_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    print(f"Attempting to delete episode with ID: {episode_id}")
+    episode = crud.get_episode_by_id(session, episode_id)
+    if not episode:
+        print(f"Episode with ID: {episode_id} not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found.")
+    
+    if episode.user_id != current_user.id:
+        print(f"User {current_user.id} does not have permission to delete episode {episode_id}.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete this episode.")
+
+    try:
+        session.delete(episode)
+        session.commit()
+        print(f"Episode {episode_id} deleted successfully from database.")
+        # No content to return for 204, so just return
+        return
+    except Exception as e:
+        session.rollback()
+        print(f"Error deleting episode {episode_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete episode: {e}")
