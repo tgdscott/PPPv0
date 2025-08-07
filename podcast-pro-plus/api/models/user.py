@@ -14,7 +14,9 @@ class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True)
     is_active: bool = True
     google_id: Optional[str] = Field(default=None, unique=True)
-    tier: str = Field(default="free") # <-- ADD THIS LINE
+    tier: str = Field(default="free")
+    spreaker_access_token: Optional[str] = Field(default=None)
+    spreaker_refresh_token: Optional[str] = Field(default=None)
 
 class User(UserBase, table=True):
     """The database model for a User."""

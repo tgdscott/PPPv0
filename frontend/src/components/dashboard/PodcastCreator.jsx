@@ -20,8 +20,9 @@ import {
   FileImage,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
-export default function PodcastCreator({ onBack, token, templates }) {
+export default function PodcastCreator({ onBack, token, templates, podcasts }) {
   const [currentStep, setCurrentStep] = useState(1)
   const [selectedTemplate, setSelectedTemplate] = useState(null)
   const [uploadedFile, setUploadedFile] = useState(null)
@@ -42,6 +43,8 @@ export default function PodcastCreator({ onBack, token, templates }) {
   })
 
   const [jobId, setJobId] = useState(null);
+  const [spreakerShows, setSpreakerShows] = useState([]);
+  const [selectedSpreakerShow, setSelectedSpreakerShow] = useState(null);
 
   const fileInputRef = useRef(null)
   const coverArtInputRef = useRef(null)
@@ -60,7 +63,37 @@ export default function PodcastCreator({ onBack, token, templates }) {
       }
     };
     fetchMedia();
+    fetchSpreakerShows(); // Fetch Spreaker shows on mount
   }, [token]);
+
+  const fetchSpreakerShows = async () => {
+    try {
+      const response = await fetch('/api/spreaker/shows', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        if (response.status === 401) {
+          toast({
+            title: "Spreaker Not Authenticated",
+            description: "Please connect your Spreaker account in settings.",
+            variant: "destructive",
+          });
+        }
+        throw new Error('Failed to fetch Spreaker shows.');
+      }
+      const data = await response.json();
+      setSpreakerShows(data.shows);
+      if (data.shows.length > 0) {
+        setSelectedSpreakerShow(data.shows[0].show_id);
+      }
+    } catch (err) {
+      toast({
+        title: "Error fetching Spreaker shows",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   useEffect(() => {
     if (!jobId) return;
@@ -84,8 +117,8 @@ export default function PodcastCreator({ onBack, token, templates }) {
           setIsAssembling(false);
           if (data.status === 'processed') {
             setCurrentStep(6); // Success step
-            setStatusMessage('Episode assembled successfully!');
-            toast({ title: "Success!", description: "Your episode has been assembled." });
+            setStatusMessage('Episode assembly has been queued.'); // Corrected message
+            toast({ title: "Success!", description: "Your episode has been assembled and queued for publishing." });
           } else {
             setError(data.error || 'An error occurred during processing.');
             toast({ variant: "destructive", title: "Error", description: data.error || 'An error occurred during processing.' });
@@ -191,6 +224,8 @@ export default function PodcastCreator({ onBack, token, templates }) {
                 output_filename: episodeDetails.title.toLowerCase().replace(/\s+/g, '-'),
                 tts_values: ttsValues,
                 episode_details: episodeDetails,
+                spreaker_show_id: selectedSpreakerShow,
+                auto_published_at: episodeDetails.publishDate && episodeDetails.publishTime ? `${episodeDetails.publishDate}T${episodeDetails.publishTime}:00Z` : null,
             }),
         });
 
@@ -369,7 +404,7 @@ export default function PodcastCreator({ onBack, token, templates }) {
                     <div className="w-32 h-32 bg-gray-100 rounded-lg flex items-center justify-center">
                       {episodeDetails.coverArtPreview ? <img src={episodeDetails.coverArtPreview} alt="Cover art preview" className="w-full h-full object-cover rounded-lg" /> : <FileImage className="w-12 h-12 text-gray-400" />}
                     </div>
-                    <Button variant="outline" onClick={() => coverArtInputRef.current?.click()}>
+                    <Button onClick={() => coverArtInputRef.current?.click()} variant="outline">
                       <Upload className="w-4 h-4 mr-2" /> Upload Image
                     </Button>
                     <input ref={coverArtInputRef} type="file" accept="image/*" onChange={(e) => handleCoverArtChange(e.target.files[0])} className="hidden" />
@@ -387,34 +422,50 @@ export default function PodcastCreator({ onBack, token, templates }) {
             </div>
           </div>
         )
-      case 5: // Publish
+      case 5: // Publishing
         return (
-            <div className="space-y-8 text-center">
-                <Card className="border-0 shadow-lg bg-white max-w-2xl mx-auto">
-                    <CardHeader><CardTitle style={{ color: "#2C3E50" }}>Ready to Publish?</CardTitle></CardHeader>
-                    <CardContent className="space-y-4">
-                        <p>Your episode "{episodeDetails.title}" is ready to be assembled and published.</p>
-                        {statusMessage && <p className="text-sm text-green-600">{statusMessage}</p>}
-                        {error && <p className="text-sm text-red-600">{error}</p>}
-                    </CardContent>
-                </Card>
-                <div className="flex justify-center gap-4 pt-8">
-                    <Button onClick={() => setCurrentStep(4)} variant="outline" size="lg" className="px-8 py-3 text-lg bg-transparent"><ArrowLeft className="w-5 h-5 mr-2" />Back</Button>
-                    <Button onClick={handlePublish} size="lg" className="px-12 py-4 text-xl font-semibold text-white" style={{ backgroundColor: "#2C3E50" }} disabled={isAssembling}>
-                        {isAssembling ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Assembling...</> : "🚀 Publish Episode"}
+          <div className="space-y-8">
+            <CardHeader className="text-center"><CardTitle style={{ color: "#2C3E50" }}>Step 5: Publishing</CardTitle></CardHeader>
+            <Card className="border-0 shadow-lg bg-white">
+              <CardContent className="p-6 space-y-6">
+                
+                {spreakerShows.length > 0 && (
+                  <div className="space-y-4">
+                    <Label htmlFor="spreaker-show">Select a show to publish to:</Label>
+                    <Select onValueChange={setSelectedSpreakerShow}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a show..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {spreakerShows.map(show => (
+                          <SelectItem key={show.show_id} value={show.show_id}>{show.title}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+
+                    <Button onClick={handlePublish} size="lg" className="w-full px-12 py-4 text-xl font-semibold text-white" style={{ backgroundColor: "#2C3E50" }} disabled={isAssembling || !selectedSpreakerShow}>
+                      {isAssembling ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Assembling...</> : "🚀 Publish to Spreaker"}
                     </Button>
-                </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <div className="flex justify-between pt-8">
+              <Button onClick={() => setCurrentStep(4)} variant="outline" size="lg"><ArrowLeft className="w-5 h-5 mr-2" />Back</Button>
+              <Button onClick={() => setCurrentStep(6)} size="lg" className="px-8 py-3 text-lg font-semibold text-white" style={{ backgroundColor: "#2C3E50" }}>Continue to Done!<ArrowLeft className="w-5 h-5 ml-2 rotate-180" /></Button>
             </div>
-        )
+          </div>
+        );
        case 6: // Success
         return (
              <div className="text-center space-y-6">
                 <CheckCircle className="w-24 h-24 mx-auto text-green-500" />
-                <h2 className="text-3xl font-bold" style={{ color: "#2C3E50" }}>Episode Published!</h2>
+                <h2 className="text-3xl font-bold" style={{ color: "#2C3E50" }}>Episode Queued for Publishing!</h2>
                 <p className="text-lg text-gray-600">{statusMessage}</p>
                 <Button onClick={onBack} size="lg">Back to Dashboard</Button>
              </div>
-        )
+        );
       default:
         return <div>Invalid Step</div>
     }

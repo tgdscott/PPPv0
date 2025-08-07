@@ -5,6 +5,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = "YOUR_API_KEY_HERE"
     ELEVENLABS_API_KEY: str = "YOUR_API_KEY_HERE"
     SPREAKER_API_TOKEN: str = "YOUR_SPREAKER_TOKEN_HERE"
+    SPREAKER_CLIENT_ID: str = "YOUR_SPREAKER_CLIENT_ID"
+    SPREAKER_CLIENT_SECRET: str = "YOUR_SPREAKER_CLIENT_SECRET"
+    SPREAKER_REDIRECT_URI: str = "http://localhost:8000/api/auth/spreaker/callback"
 
     # --- Google OAuth Settings ---
     GOOGLE_CLIENT_ID: str = "YOUR_GOOGLE_CLIENT_ID"
@@ -23,6 +26,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 # Create an instance of the settings
 settings = Settings()

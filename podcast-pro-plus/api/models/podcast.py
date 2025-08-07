@@ -118,6 +118,8 @@ class Episode(SQLModel, table=True):
     
     status: EpisodeStatus = Field(default=EpisodeStatus.pending)
     final_audio_path: Optional[str] = Field(default=None)
+    spreaker_episode_id: Optional[str] = Field(default=None)
+    is_published_to_spreaker: bool = Field(default=False)
 
     processed_at: datetime = Field(default_factory=datetime.utcnow)
     publish_at: Optional[datetime] = Field(default=None)

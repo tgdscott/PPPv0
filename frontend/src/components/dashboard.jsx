@@ -28,6 +28,7 @@ import {
   ArrowLeft,
   Rss,
   AlertTriangle,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/AuthContext";
@@ -40,6 +41,7 @@ import EpisodeHistory from "@/components/dashboard/EpisodeHistory";
 import PodcastManager from "@/components/dashboard/PodcastManager";
 import RssImporter from "@/components/dashboard/RssImporter";
 import DevTools from "@/components/dashboard/DevTools";
+import Settings from "@/components/dashboard/Settings";
 
 export default function PodcastPlusDashboard() {
   const { token, logout } = useAuth();
@@ -172,6 +174,7 @@ export default function PodcastPlusDashboard() {
             <Button onClick={() => setCurrentView('episodeHistory')} variant="outline" className="w-full justify-start bg-transparent"><BarChart3 className="w-4 h-4 mr-2" />Episode History</Button>
             <Button onClick={() => setCurrentView('mediaLibrary')} variant="outline" className="w-full justify-start bg-transparent"><Music className="w-4 h-4 mr-2" />Media Library</Button>
             <Button onClick={() => setCurrentView('rssImporter')} variant="outline" className="w-full justify-start bg-transparent"><Rss className="w-4 h-4 mr-2" />Import from RSS</Button>
+            <Button onClick={() => setCurrentView('settings')} variant="outline" className="w-full justify-start bg-transparent"><SettingsIcon className="w-4 h-4 mr-2" />Settings</Button>
             <Button onClick={() => setCurrentView('devTools')} variant="ghost" className="w-full justify-start text-amber-600 hover:bg-amber-50 hover:text-amber-700">
                 <AlertTriangle className="w-4 h-4 mr-2" />Developer Tools
             </Button>
@@ -198,6 +201,8 @@ export default function PodcastPlusDashboard() {
         return <RssImporter onBack={handleBackToDashboard} token={token} />;
       case 'devTools':
         return <DevTools token={token} />;
+      case 'settings':
+        return <Settings token={token} />;
       case 'dashboard':
       default:
         const canCreateEpisode = podcasts.length > 0 && templates.length > 0;

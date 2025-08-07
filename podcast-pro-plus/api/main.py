@@ -2,10 +2,13 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+import starlette
+
+print(f"Starlette version: {starlette.__version__}")
 
 from .core.database import create_db_and_tables
 from .core.config import settings
-from .routers import templates, episodes, auth, media, users, admin, podcasts, importer, dev
+from .routers import templates, episodes, auth, media, users, admin, podcasts, importer, dev, spreaker
 from worker.tasks import celery_app
 
 @asynccontextmanager
@@ -23,6 +26,8 @@ app.add_middleware(
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://0985ef59e207.ngrok-free.app",
+    "https://59c2e2f840ab.ngrok-free.app"
 ]
 
 app.add_middleware(
@@ -34,14 +39,16 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
-app.include_router(users.router)
-app.include_router(admin.router)
-app.include_router(podcasts.router)
-app.include_router(templates.router)
-app.include_router(media.router)
-app.include_router(episodes.router)
-app.include_router(importer.router)
-app.include_router(dev.router)
+app.include_router(auth.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
+app.include_router(podcasts.router, prefix="/api")
+app.include_router(templates.router, prefix="/api")
+app.include_router(media.router, prefix="/api")
+app.include_router(episodes.router, prefix="/api")
+app.include_router(importer.router, prefix="/api")
+app.include_router(dev.router, prefix="/api")
+app.include_router(spreaker.router, prefix="/api")
 
 @app.get("/")
 def read_root():

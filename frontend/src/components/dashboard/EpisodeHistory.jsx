@@ -12,11 +12,17 @@ import {
   Copy,
   Check,
   Trash2,
+  UploadCloud,
 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
+
 
 export default function EpisodeHistory({ onBack, token }) {
   const [episodes, setEpisodes] = useState([]);
@@ -28,6 +34,15 @@ export default function EpisodeHistory({ onBack, token }) {
   const [copied, setCopied] = useState(false);
   const [showErrorProcessingView, setShowErrorProcessingView] = useState(false); // New state for view toggle
   const [selectedEpisodes, setSelectedEpisodes] = useState(new Set()); // New state for mass delete
+  const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
+  const [episodeToPublish, setEpisodeToPublish] = useState(null);
+  const [spreakerShows, setSpreakerShows] = useState([]);
+  const [publishForm, setPublishForm] = useState({
+    show_id: '',
+    title: '',
+    description: '',
+    auto_published_at: '',
+  });
   const { toast } = useToast();
 
   const fetchEpisodes = async () => {
@@ -66,6 +81,35 @@ export default function EpisodeHistory({ onBack, token }) {
       return []; // Return empty array on error
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchSpreakerShows = async () => {
+    try {
+      const response = await fetch('/api/spreaker/shows', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        if (response.status === 401) {
+          toast({
+            title: "Spreaker Not Authenticated",
+            description: "Please connect your Spreaker account in settings.",
+            variant: "destructive",
+          });
+        }
+        throw new Error('Failed to fetch Spreaker shows.');
+      }
+      const data = await response.json();
+      setSpreakerShows(data.shows);
+      if (data.shows.length > 0) {
+        setPublishForm(prev => ({ ...prev, show_id: data.shows[0].show_id }));
+      }
+    } catch (err) {
+      toast({
+        title: "Error fetching Spreaker shows",
+        description: err.message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -199,6 +243,58 @@ export default function EpisodeHistory({ onBack, token }) {
     });
   };
 
+  const handlePublishToSpreaker = (episode) => {
+    setEpisodeToPublish(episode);
+    setPublishForm({
+      show_id: spreakerShows.length > 0 ? spreakerShows[0].show_id : '',
+      title: episode.title || '',
+      description: episode.description || '',
+      auto_published_at: '',
+    });
+    fetchSpreakerShows();
+    setIsPublishDialogOpen(true);
+  };
+
+  const handlePublishFormChange = (e) => {
+    const { id, value } = e.target;
+    setPublishForm(prev => ({ ...prev, [id]: value }));
+  };
+
+  const submitPublish = async (e) => {
+    e.preventDefault();
+    if (!episodeToPublish || !publishForm.show_id || !publishForm.title) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a show and provide a title.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/episodes/publish/spreaker/${episodeToPublish.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(publishForm)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to publish episode to Spreaker.');
+      }
+
+      toast({ title: "Success", description: "Episode sent to Spreaker for publishing/scheduling." });
+      setIsPublishDialogOpen(false);
+      setEpisodeToPublish(null);
+      fetchEpisodes(); // Refresh episode list
+    } catch (err) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+  };
+
   const filteredEpisodes = episodes
     .filter(episode => {
       if (showErrorProcessingView) {
@@ -326,6 +422,17 @@ export default function EpisodeHistory({ onBack, token }) {
                         >
                           <Share2 className="w-4 h-4" />
                         </Button>
+                        {episode.status === "processed" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handlePublishToSpreaker(episode)}
+                            title="Publish to Spreaker"
+                            className="p-2 text-green-500 hover:text-green-800"
+                          >
+                            <UploadCloud className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
 
@@ -376,6 +483,71 @@ export default function EpisodeHistory({ onBack, token }) {
               </Button>
             </div>
             {copied && <p className="text-green-600 text-sm mt-2">Link copied!</p>}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {isPublishDialogOpen && episodeToPublish && (
+        <Dialog open={isPublishDialogOpen} onOpenChange={setIsPublishDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Publish to Spreaker</DialogTitle>
+              <DialogDescription>
+                Publish "{episodeToPublish.title}" to your Spreaker account.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submitPublish} className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="show_id" className="text-right">
+                  Spreaker Show
+                </Label>
+                <Select onValueChange={(value) => setPublishForm(prev => ({ ...prev, show_id: value }))} value={publishForm.show_id}>
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue placeholder="Select a show" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {spreakerShows.map(show => (
+                      <SelectItem key={show.show_id} value={show.show_id}>{show.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="title" className="text-right">
+                  Title
+                </Label>
+                <Input
+                  id="title"
+                  value={publishForm.title}
+                  onChange={handlePublishFormChange}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="description" className="text-right">
+                  Description
+                </Label>
+                <Textarea
+                  id="description"
+                  value={publishForm.description}
+                  onChange={handlePublishFormChange}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="auto_published_at" className="text-right">
+                  Schedule Publish (UTC)
+                </Label>
+                <Input
+                  id="auto_published_at"
+                  type="datetime-local"
+                  value={publishForm.auto_published_at}
+                  onChange={handlePublishFormChange}
+                  className="col-span-3"
+                />
+              </div>
+              <Button type="submit">Publish Episode</Button>
+            </form>
           </DialogContent>
         </Dialog>
       )}

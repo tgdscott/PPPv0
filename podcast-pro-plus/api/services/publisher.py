@@ -1,5 +1,5 @@
 import requests
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union, List, Dict
 
 from ..core.config import settings
 
@@ -22,15 +22,17 @@ class SpreakerClient:
         title: str,
         file_path: str,
         description: Optional[str] = None,
+        auto_published_at: Optional[str] = None, # ISO 8601 format for scheduled publishing
     ) -> Tuple[bool, str]:
         """
-        Uploads an episode to Spreaker as a draft.
+        Uploads an episode to Spreaker.
 
         Args:
             show_id: The ID of the show to upload the episode to.
             title: The title of the episode.
             file_path: The local path to the final audio file.
             description: The description or show notes for the episode.
+            auto_published_at: Optional. ISO 8601 formatted datetime string for scheduled publishing.
 
         Returns:
             A tuple containing a boolean for success and a status message.
@@ -39,10 +41,11 @@ class SpreakerClient:
 
         data = {
             "title": title,
-            "auto_publish": "false",  # Upload as a draft
         }
         if description:
             data["description"] = description
+        if auto_published_at:
+            data["auto_published_at"] = auto_published_at
 
         try:
             with open(file_path, "rb") as audio_file:
@@ -54,7 +57,7 @@ class SpreakerClient:
             episode_id = response_data.get("response", {}).get("episode", {}).get("episode_id")
             
             if episode_id:
-                return True, f"Successfully uploaded episode as a draft. Episode ID: {episode_id}"
+                return True, f"Successfully uploaded episode. Episode ID: {episode_id}"
             else:
                 return False, f"Upload failed. Spreaker response: {response.text}"
 
@@ -65,3 +68,21 @@ class SpreakerClient:
         except Exception as e:
             return False, f"An unexpected error occurred: {e}"
 
+    def get_shows(self) -> Tuple[bool, Union[List[Dict], str]]:
+        """
+        Retrieves a list of shows for the authenticated user from Spreaker.
+
+        Returns:
+            A tuple containing a boolean for success and either a list of show dictionaries or an error message.
+        """
+        endpoint = f"{self.BASE_URL}/me/shows"
+        try:
+            response = requests.get(endpoint, headers=self.headers)
+            response.raise_for_status()
+            response_data = response.json()
+            shows = response_data.get("response", {}).get("shows", [])
+            return True, shows
+        except requests.exceptions.RequestException as e:
+            return False, f"An API error occurred while fetching shows: {e}. Response: {e.response.text if e.response else 'No response'}"
+        except Exception as e:
+            return False, f"An unexpected error occurred while fetching shows: {e}"

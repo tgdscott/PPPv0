@@ -7,7 +7,7 @@ from uuid import UUID
 import os
 from sqlmodel import Session, select
 
-from worker.tasks import create_podcast_episode, celery_app
+from worker.tasks import create_podcast_episode, celery_app, publish_episode_to_spreaker_task
 
 from ..services import audio_processor, transcription, ai_enhancer, publisher
 from ..core.database import get_session
@@ -32,6 +32,7 @@ class AssembleRequestBody(BaseModel):
     output_filename: str
     tts_values: Dict[str, str] = {}
     episode_details: Dict[str, Any] = {}
+    spreaker_show_id: Optional[str] = None
 
 
 def find_file_in_dirs(filename: str) -> Optional[Path]:
@@ -131,19 +132,34 @@ async def generate_metadata_endpoint(filename: str, current_user: User = Depends
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
-@router.post("/publish/spreaker/{filename}", status_code=status.HTTP_200_OK)
+@router.post("/publish/spreaker/{episode_id}", status_code=status.HTTP_202_ACCEPTED)
 async def publish_to_spreaker(
-    filename: str,
+    episode_id: UUID,
+    session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
     show_id: str = Body(..., embed=True),
     title: str = Body(..., embed=True),
-    description: Optional[str] = Body(None, embed=True)
+    description: Optional[str] = Body(None, embed=True),
+    auto_published_at: Optional[str] = Body(None, embed=True)
 ):
-    file_to_upload = find_file_in_dirs(filename)
-    if not file_to_upload:
-        raise HTTPException(status_code=404, detail=f"File '{filename}' not found in any output directory.")
+    if not current_user.spreaker_access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Spreaker not authenticated for this user.")
+
+    # Find the episode by ID
+    episode = session.get(Episode, episode_id)
+    if not episode or episode.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail=f"Episode with id '{episode_id}' not found.")
+
+    # Dispatch the task to the Celery worker
     try:
-        print(f"User {current_user.email} is publishing {filename} to Spreaker show {show_id}.")
-        return {"message": f"Successfully published '{title}' to Spreaker."}
+        task = publish_episode_to_spreaker_task.delay(
+            episode_id=str(episode.id),
+            spreaker_show_id=show_id,
+            title=title,
+            description=description,
+            auto_published_at=auto_published_at,
+            spreaker_access_token=current_user.spreaker_access_token
+        )
+        return {"message": "Episode publishing to Spreaker has been queued.", "job_id": task.id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue Spreaker publishing task: {e}")

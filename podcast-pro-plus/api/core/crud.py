@@ -12,6 +12,10 @@ def get_user_by_email(session: Session, email: str) -> Optional[User]:
     statement = select(User).where(User.email == email)
     return session.exec(statement).first()
 
+def get_user_by_id(session: Session, user_id: UUID) -> Optional[User]:
+    statement = select(User).where(User.id == user_id)
+    return session.exec(statement).first()
+
 def create_user(session: Session, user_create: UserCreate) -> User:
     hashed_password = get_password_hash(user_create.password)
     db_user = User.model_validate(user_create, update={"hashed_password": hashed_password})
