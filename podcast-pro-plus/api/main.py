@@ -9,7 +9,7 @@ print(f"Starlette version: {starlette.__version__}")
 
 from .core.database import create_db_and_tables
 from .core.config import settings
-from .routers import templates, episodes, auth, media, users, admin, podcasts, importer, dev, spreaker
+from .routers import templates, episodes, auth, media, users, admin, podcasts, importer, dev, spreaker, wizard
 from worker.tasks import celery_app
 
 @asynccontextmanager
@@ -53,6 +53,7 @@ app.include_router(episodes.router, prefix="/api")
 app.include_router(importer.router, prefix="/api")
 app.include_router(dev.router, prefix="/api")
 app.include_router(spreaker.router, prefix="/api")
+app.include_router(wizard.router, prefix="/api/wizard")
 
 @app.get("/")
 def read_root():

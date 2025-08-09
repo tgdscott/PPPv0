@@ -109,14 +109,30 @@ class SpreakerClient:
     def get_shows(self) -> Tuple[bool, Union[List[Dict], str]]:
         """
         Retrieves a list of shows for the authenticated user from Spreaker.
+        First, gets the user ID from the /me endpoint, then fetches the shows
+        from the /users/{user_id}/shows endpoint.
         """
-        endpoint = f"{self.BASE_URL}/me/shows"
         try:
-            response = requests.get(endpoint, headers=self.headers)
-            response.raise_for_status()
-            response_data = response.json()
-            shows = response_data.get("response", {}).get("shows", [])
+            # First, get the user's ID from the /me endpoint
+            me_endpoint = f"{self.BASE_URL}/me"
+            me_response = requests.get(me_endpoint, headers=self.headers)
+            me_response.raise_for_status()
+            me_data = me_response.json()
+            user_id = me_data.get("response", {}).get("user", {}).get("user_id")
+
+            if not user_id:
+                return False, "Could not retrieve user ID from Spreaker."
+
+            # Then, get the shows using the user ID
+            shows_endpoint = f"{self.BASE_URL}/users/{user_id}/shows"
+            shows_response = requests.get(shows_endpoint, headers=self.headers)
+            shows_response.raise_for_status()
+            shows_data = shows_response.json()
+            
+            # Correctly parse the 'items' key based on the logs and documentation
+            shows = shows_data.get("response", {}).get("items", [])
             return True, shows
+
         except requests.exceptions.RequestException as e:
             return False, f"An API error occurred while fetching shows: {e}. Response: {e.response.text if e.response else 'No response'}"
         except Exception as e:

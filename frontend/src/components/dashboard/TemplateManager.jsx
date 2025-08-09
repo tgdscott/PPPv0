@@ -1,10 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Plus, Edit, Trash2, Loader2, ArrowLeft } from "lucide-react";
+import { Plus, Edit, Trash2, Loader2, ArrowLeft, Bot } from "lucide-react";
 import { useState, useEffect } from "react";
 import TemplateEditor from "./TemplateEditor"; // We will use the editor as a sub-component
 
-export default function TemplateManager({ onBack, token }) {
+export default function TemplateManager({ onBack, token, setCurrentView }) {
   const [templates, setTemplates] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -66,7 +66,10 @@ export default function TemplateManager({ onBack, token }) {
        <Button onClick={onBack} variant="ghost" className="mb-4"><ArrowLeft className="w-4 h-4 mr-2" />Back to Dashboard</Button>
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Template Manager</h1>
-        <Button onClick={handleCreateNew}><Plus className="w-4 h-4 mr-2" />Create New Template</Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setCurrentView('templateWizard')} variant="outline"><Bot className="w-4 h-4 mr-2" />Create with AI Wizard</Button>
+          <Button onClick={handleCreateNew}><Plus className="w-4 h-4 mr-2" />Create New Template</Button>
+        </div>
       </div>
       {isLoading && <div className="flex justify-center"><Loader2 className="w-8 h-8 animate-spin" /></div>}
       {error && <p className="text-red-500">{error}</p>}

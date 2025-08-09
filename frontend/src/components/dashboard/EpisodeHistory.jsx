@@ -32,11 +32,12 @@ export default function EpisodeHistory({ onBack, token }) {
   const [shareEpisode, setShareEpisode] = useState(null);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [showErrorProcessingView, setShowErrorProcessingView] = useState(false); // New state for view toggle
-  const [selectedEpisodes, setSelectedEpisodes] = useState(new Set()); // New state for mass delete
+  const [showErrorProcessingView, setShowErrorProcessingView] = useState(false);
+  const [selectedEpisodes, setSelectedEpisodes] = useState(new Set());
   const [isPublishDialogOpen, setIsPublishDialogOpen] = useState(false);
   const [episodeToPublish, setEpisodeToPublish] = useState(null);
   const [spreakerShows, setSpreakerShows] = useState([]);
+  const [isFetchingShows, setIsFetchingShows] = useState(false);
   const [publishForm, setPublishForm] = useState({
     show_id: '',
     title: '',
@@ -46,117 +47,73 @@ export default function EpisodeHistory({ onBack, token }) {
   const { toast } = useToast();
 
   const fetchEpisodes = useCallback(async (isPolling = false) => {
-    if (!isPolling) {
-      console.log("fetchEpisodes: Starting initial fetch...");
-      setIsLoading(true);
-    } else {
-      console.log("fetchEpisodes: Starting polling fetch...");
-    }
+    if (!isPolling) setIsLoading(true);
     try {
       const response = await fetch('/api/episodes/', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) throw new Error('Failed to fetch episode history.');
       let data = await response.json();
-      console.log("fetchEpisodes: Received data:", data);
-      
-      // Sort episodes by publish_at, then processed_at, then created_at, newest first
       data.sort((a, b) => {
         const dateA = new Date(a.publish_at || a.processed_at || a.created_at);
         const dateB = new Date(b.publish_at || b.processed_at || b.created_at);
-
-        // Handle invalid dates by placing them at the end
         if (isNaN(dateA.getTime())) return 1;
         if (isNaN(dateB.getTime())) return -1;
         return dateB.getTime() - dateA.getTime();
       });
-
-      // Ensure processed_at is not after publish_at
-      data.forEach(episode => {
-        const publishDate = new Date(episode.publish_at);
-        const processedDate = new Date(episode.processed_at);
-        if (publishDate.getTime() > processedDate.getTime()) {
-          episode.processed_at = episode.publish_at;
-        }
-      });
-
-      // Only update state if data has actually changed to prevent unnecessary re-renders
-      const hasDataChanged = data.length !== episodes.length || data.some((newEp, index) => {
-        const oldEp = episodes[index];
-        // Compare relevant properties for changes
-        return newEp.id !== oldEp.id || newEp.status !== oldEp.status || newEp.title !== oldEp.title || newEp.description !== oldEp.description || newEp.final_audio_path !== oldEp.final_audio_path || newEp.cover_path !== oldEp.cover_path; // Add more properties if needed
-      });
-      console.log("fetchEpisodes: hasDataChanged =", hasDataChanged);
-
-      if (hasDataChanged) {
-        console.log("fetchEpisodes: Updating episodes state.");
-        setEpisodes(data);
-      } else {
-        console.log("fetchEpisodes: No significant data change, skipping state update.");
-      }
-      return data; // Return data to be used in useEffect
+      setEpisodes(data);
+      return data;
     } catch (err) {
-      console.error("fetchEpisodes: Error during fetch:", err);
       setError(err.message);
-      return []; // Return empty array on error
+      return [];
     } finally {
-      if (!isPolling) {
-        setIsLoading(false);
-        console.log("fetchEpisodes: Initial fetch complete.");
-      } else {
-        console.log("fetchEpisodes: Polling fetch complete.");
-      }
+      if (!isPolling) setIsLoading(false);
     }
-  }, [token, episodes]); // Add episodes to dependency array
+  }, [token]);
 
   const fetchSpreakerShows = async () => {
+    setIsFetchingShows(true);
     try {
       const response = await fetch('/api/spreaker/shows', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!response.ok) {
-        if (response.status === 401) {
-          toast({
-            title: "Spreaker Not Authenticated",
-            description: "Please connect your Spreaker account in settings.",
-            variant: "destructive",
-          });
-        }
-        throw new Error('Failed to fetch Spreaker shows.');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch Spreaker shows.' }));
+        throw new Error(errorData.detail);
       }
       const data = await response.json();
-      setSpreakerShows(data.shows);
-      if (data.shows.length > 0) {
-        setPublishForm(prev => ({ ...prev, show_id: data.shows[0].show_id }));
-      }
+      const shows = data.shows || [];
+      console.log("--- DEBUG: Fetched Spreaker Shows ---", shows);
+      setSpreakerShows(shows);
+      return shows;
     } catch (err) {
       toast({
         title: "Error fetching Spreaker shows",
         description: err.message,
         variant: "destructive",
       });
+      return [];
+    } finally {
+      setIsFetchingShows(false);
     }
   };
 
   useEffect(() => {
     let intervalId = null;
-
     const startPolling = () => {
       if (!intervalId) {
-        intervalId = setInterval(() => fetchEpisodes(true), 15000); // Pass true for polling, increased interval
+        intervalId = setInterval(() => fetchEpisodes(true), 15000);
       }
     };
-
     const stopPolling = () => {
       if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
       }
     };
-
     const initFetchAndPoll = async () => {
       if (token) {
-        const data = await fetchEpisodes(false); // Initial fetch, not polling
+        const data = await fetchEpisodes(false);
         const hasProcessingOrErrorEpisodes = data.some(ep => ep.status === "processing" || ep.status === "error");
         if (hasProcessingOrErrorEpisodes) {
           startPolling();
@@ -165,31 +122,21 @@ export default function EpisodeHistory({ onBack, token }) {
         }
       }
     };
-
     initFetchAndPoll();
-
-    return () => {
-      stopPolling();
-    };
+    return () => stopPolling();
   }, [token, fetchEpisodes]);
 
   const getStatusBadge = (status) => {
     switch (status) {
-      case "processed":
-        return <Badge className="bg-green-100 text-green-800">Processed</Badge>;
-      case "processing":
-        return <Badge className="bg-blue-100 text-blue-800">Processing</Badge>;
-      case "error":
-        return <Badge className="bg-red-100 text-red-800">Error</Badge>;
-      case "scheduled":
-        return <Badge className="bg-purple-100 text-purple-800">Scheduled</Badge>;
-      default:
-        return <Badge variant="secondary">{status}</Badge>;
+      case "processed": return <Badge className="bg-green-100 text-green-800">Processed</Badge>;
+      case "processing": return <Badge className="bg-blue-100 text-blue-800">Processing</Badge>;
+      case "error": return <Badge className="bg-red-100 text-red-800">Error</Badge>;
+      case "scheduled": return <Badge className="bg-purple-100 text-purple-800">Scheduled</Badge>;
+      default: return <Badge variant="secondary">{status}</Badge>;
     }
   };
 
   const handleDownload = (episode) => {
-    // This logic may need to change if the audio is hosted externally
     const link = document.createElement('a');
     link.href = episode.final_audio_path;
     link.download = `${episode.title || 'episode'}.mp3`;
@@ -212,7 +159,7 @@ export default function EpisodeHistory({ onBack, token }) {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000); 
+      setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
     }
@@ -220,7 +167,6 @@ export default function EpisodeHistory({ onBack, token }) {
 
   const handleDeleteEpisode = async (episodeId) => {
     if (!window.confirm("Are you sure you want to delete this episode? This cannot be undone.")) return;
-    console.log(`Attempting to delete episode with ID: ${episodeId}`);
     try {
       const response = await fetch(`/api/episodes/${episodeId}`, {
         method: 'DELETE',
@@ -228,14 +174,11 @@ export default function EpisodeHistory({ onBack, token }) {
       });
       if (!response.ok) {
         const errorData = await response.json();
-        console.error("Delete failed:", errorData);
         throw new Error(errorData.detail || 'Failed to delete episode.');
       }
-      console.log(`Episode ${episodeId} deleted successfully from backend.`);
       toast({ title: "Success", description: "Episode deleted." });
-      fetchEpisodes(); // Re-fetch episodes after deletion
+      fetchEpisodes();
     } catch (err) {
-      console.error("Error deleting episode:", err);
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   };
@@ -250,7 +193,6 @@ export default function EpisodeHistory({ onBack, token }) {
       return;
     }
     if (!window.confirm(`Are you sure you want to delete ${selectedEpisodes.size} selected episodes? This cannot be undone.`)) return;
-
     try {
       const deletePromises = Array.from(selectedEpisodes).map(episodeId =>
         fetch(`/api/episodes/${episodeId}`, {
@@ -260,14 +202,13 @@ export default function EpisodeHistory({ onBack, token }) {
       );
       const results = await Promise.allSettled(deletePromises);
       const failedDeletions = results.filter(result => result.status === 'rejected');
-
       if (failedDeletions.length > 0) {
         toast({ title: "Error", description: `Failed to delete ${failedDeletions.length} episodes.`, variant: "destructive" });
       } else {
         toast({ title: "Success", description: "Selected episodes deleted." });
       }
-      setSelectedEpisodes(new Set()); // Clear selection
-      fetchEpisodes(); // Re-fetch episodes after deletion
+      setSelectedEpisodes(new Set());
+      fetchEpisodes();
     } catch (err) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -285,21 +226,25 @@ export default function EpisodeHistory({ onBack, token }) {
     });
   };
 
-  const handlePublishToSpreaker = (episode) => {
+  const handlePublishToSpreaker = async (episode) => {
+    const shows = await fetchSpreakerShows();
     setEpisodeToPublish(episode);
     setPublishForm({
-      show_id: spreakerShows.length > 0 ? spreakerShows[0].show_id : '',
-      title: episode.title || '',
-      description: episode.description || '',
-      auto_published_at: '',
+        show_id: shows.length > 0 ? shows[0].show_id : '',
+        title: episode.title || '',
+        description: episode.description || '',
+        auto_published_at: '',
     });
-    fetchSpreakerShows();
     setIsPublishDialogOpen(true);
   };
 
   const handlePublishFormChange = (e) => {
     const { id, value } = e.target;
     setPublishForm(prev => ({ ...prev, [id]: value }));
+  };
+  
+  const handleShowSelect = (value) => {
+      setPublishForm(prev => ({ ...prev, show_id: value }));
   };
 
   const submitPublish = async (e) => {
@@ -313,14 +258,24 @@ export default function EpisodeHistory({ onBack, token }) {
       return;
     }
 
+    let submissionForm = { ...publishForm };
+    if (submissionForm.auto_published_at) {
+      submissionForm.auto_published_at = new Date(submissionForm.auto_published_at).toISOString();
+    } else {
+        delete submissionForm.auto_published_at;
+    }
+
     try {
-      const response = await fetch(`/api/episodes/publish/spreaker/${episodeToPublish.id}`, {
+      const filename = episodeToPublish.final_audio_path.split('/').pop();
+      const body = JSON.stringify({ ...submissionForm, filename });
+      console.log("--- DEBUG: Sending to /api/spreaker/upload ---", body);
+      const response = await fetch(`/api/spreaker/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(publishForm)
+        body: body
       });
 
       if (!response.ok) {
@@ -331,7 +286,7 @@ export default function EpisodeHistory({ onBack, token }) {
       toast({ title: "Success", description: "Episode sent to Spreaker for publishing/scheduling." });
       setIsPublishDialogOpen(false);
       setEpisodeToPublish(null);
-      fetchEpisodes(); // Refresh episode list
+      fetchEpisodes();
     } catch (err) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -404,7 +359,6 @@ export default function EpisodeHistory({ onBack, token }) {
                           className="mr-4"
                         />
                       )}
-                      {/* --- THIS IS THE FIX for the Cover Art --- */}
                       <div className="flex items-center gap-4 flex-1 min-w-0">
                         {episode.cover_path && (
                           <img 
@@ -471,8 +425,9 @@ export default function EpisodeHistory({ onBack, token }) {
                             onClick={() => handlePublishToSpreaker(episode)}
                             title="Publish to Spreaker"
                             className="p-2 text-green-500 hover:text-green-800"
+                            disabled={isFetchingShows}
                           >
-                            <UploadCloud className="w-4 h-4" />
+                            {isFetchingShows ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
                           </Button>
                         )}
                       </div>
@@ -538,58 +493,67 @@ export default function EpisodeHistory({ onBack, token }) {
                 Publish "{episodeToPublish.title}" to your Spreaker account.
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={submitPublish} className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="show_id" className="text-right">
-                  Spreaker Show
-                </Label>
-                <Select onValueChange={(value) => setPublishForm(prev => ({ ...prev, show_id: value }))} value={publishForm.show_id}>
-                  <SelectTrigger className="col-span-3">
-                    <SelectValue placeholder="Select a show" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {spreakerShows.map(show => (
-                      <SelectItem key={show.show_id} value={show.show_id}>{show.title}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {spreakerShows.length > 0 ? (
+              <form onSubmit={submitPublish} className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="show_id" className="text-right">
+                    Spreaker Show
+                  </Label>
+                  <Select onValueChange={handleShowSelect} value={publishForm.show_id}>
+                    <SelectTrigger className="col-span-3">
+                      <SelectValue placeholder="Select a show" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {spreakerShows.map(show => (
+                        <SelectItem key={show.show_id} value={show.show_id}>{show.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="title" className="text-right">
+                    Title
+                  </Label>
+                  <Input
+                    id="title"
+                    value={publishForm.title}
+                    onChange={handlePublishFormChange}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="description" className="text-right">
+                    Description
+                  </Label>
+                  <Textarea
+                    id="description"
+                    value={publishForm.description}
+                    onChange={handlePublishFormChange}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="auto_published_at" className="text-right">
+                    Schedule Publish (UTC)
+                  </Label>
+                  <Input
+                    id="auto_published_at"
+                    type="datetime-local"
+                    value={publishForm.auto_published_at}
+                    onChange={handlePublishFormChange}
+                    className="col-span-3"
+                  />
+                </div>
+                <Button type="submit" disabled={!publishForm.show_id}>Publish Episode</Button>
+              </form>
+            ) : (
+              <div className="py-4">
+                <p className="text-center text-red-600 font-semibold">No Spreaker Shows Found</p>
+                <p className="text-center text-sm text-gray-500 mt-2">
+                  I couldn't find any shows on your connected Spreaker account. Please go to Spreaker, create a new show, and then try publishing again.
+                </p>
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="title" className="text-right">
-                  Title
-                </Label>
-                <Input
-                  id="title"
-                  value={publishForm.title}
-                  onChange={handlePublishFormChange}
-                  className="col-span-3"
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="description" className="text-right">
-                  Description
-                </Label>
-                <Textarea
-                  id="description"
-                  value={publishForm.description}
-                  onChange={handlePublishFormChange}
-                  className="col-span-3"
-                />
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="auto_published_at" className="text-right">
-                  Schedule Publish (UTC)
-                </Label>
-                <Input
-                  id="auto_published_at"
-                  type="datetime-local"
-                  value={publishForm.auto_published_at}
-                  onChange={handlePublishFormChange}
-                  className="col-span-3"
-                />
-              </div>
-              <Button type="submit">Publish Episode</Button>
-            </form>
+            )}
           </DialogContent>
         </Dialog>
       )}

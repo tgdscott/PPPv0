@@ -92,7 +92,8 @@ async def assemble_episode_endpoint(
             tts_values=body.tts_values,
             episode_details=body.episode_details,
             user_id=str(current_user.id),
-            podcast_id=str(podcast.id)
+            podcast_id=str(podcast.id),
+            elevenlabs_api_key=current_user.elevenlabs_api_key
         )
         print(f"DEBUG: Celery task ID: {task.id}")
         return {"message": "Episode assembly has been queued.", "job_id": task.id}

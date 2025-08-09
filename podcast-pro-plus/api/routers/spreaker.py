@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..core.database import get_session
 from ..core.config import settings
@@ -12,7 +14,15 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode
 import secrets
-from uuid import UUID # Import UUID
+from uuid import UUID
+
+# Define the Pydantic model at the top of the file
+class SpreakerUploadRequest(BaseModel):
+    show_id: str
+    title: str
+    filename: str
+    description: Optional[str] = None
+    auto_published_at: Optional[str] = None
 
 UPLOAD_DIR = Path("temp_uploads")
 CLEANED_DIR = Path("cleaned_audio")
@@ -31,18 +41,12 @@ router = APIRouter(
     tags=["Spreaker"],
 )
 
-# In-memory storage for OAuth states (for development/single-process only)
-# In a production multi-process environment, this would need a shared store (Redis, database)
 _oauth_states = {}
 
 @router.get("/auth/login")
 async def spreaker_login(request: Request, current_user: User = Depends(get_current_user)):
-    """
-    Returns the Spreaker authorization URL.
-    """
     state = secrets.token_urlsafe(32)
     _oauth_states[state] = {"user_id": str(current_user.id)}
-    
     params = {
         "client_id": settings.SPREAKER_CLIENT_ID,
         "response_type": "code",
@@ -51,21 +55,15 @@ async def spreaker_login(request: Request, current_user: User = Depends(get_curr
         "state": state
     }
     auth_url = f"https://www.spreaker.com/oauth2/authorize?{urlencode(params)}"
-    print(f"Generated Spreaker Auth URL: {auth_url}")
     return {"auth_url": auth_url}
 
 @router.get("/auth/callback")
 async def spreaker_callback(request: Request, code: str, state: str, db: Session = Depends(get_session)):
-    """
-    Handles the callback from Spreaker after the user has authorized the application.
-    """
     stored_data = _oauth_states.pop(state, None)
-    
     if not stored_data or stored_data["user_id"] is None:
-        raise HTTPException(status_code=403, detail="Invalid state parameter or user not found in session")
+        raise HTTPException(status_code=403, detail="Invalid state parameter")
 
     user_id = stored_data["user_id"]
-
     token_url = "https://api.spreaker.com/oauth2/token"
     data = {
         "grant_type": "authorization_code",
@@ -81,8 +79,7 @@ async def spreaker_callback(request: Request, code: str, state: str, db: Session
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to retrieve access token from Spreaker")
     
     token_data = response.json()
-    
-    user = crud.get_user_by_id(db, UUID(user_id)) # Use get_user_by_id and cast to UUID
+    user = crud.get_user_by_id(db, UUID(user_id))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -93,28 +90,14 @@ async def spreaker_callback(request: Request, code: str, state: str, db: Session
     db.refresh(user)
     
     return HTMLResponse('''
-        <html>
-            <head>
-                <title>Authentication Successful</title>
-                <script>
-                    window.opener.postMessage("spreaker_connected", "*");
-                    setTimeout(() => window.close(), 500);
-                </script>
-            </head>
-            <body>
-                <p>Authentication successful! You can now close this window.</p>
-            </body>
-        </html>
+        <html><head><title>Authentication Successful</title><script>
+        window.opener.postMessage("spreaker_connected", "*");
+        setTimeout(() => window.close(), 500);
+        </script></head><body><p>Authentication successful! You can now close this window.</p></body></html>
     ''')
 
 @router.post("/disconnect", status_code=status.HTTP_200_OK)
-async def disconnect_spreaker(
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Disconnects the user's Spreaker account by clearing their tokens.
-    """
+async def disconnect_spreaker(session: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     current_user.spreaker_access_token = None
     current_user.spreaker_refresh_token = None
     session.add(current_user)
@@ -124,16 +107,41 @@ async def disconnect_spreaker(
 
 @router.get("/shows")
 async def get_spreaker_shows(current_user: User = Depends(get_current_user)):
-    """
-    Gets a list of the user's shows from Spreaker.
-    """
     if not current_user.spreaker_access_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Spreaker not authenticated for this user.")
     
     client = SpreakerClient(api_token=current_user.spreaker_access_token)
-    success, result = client.get_shows()
+    success, result = await run_in_threadpool(client.get_shows)
     
     if not success:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result)
         
     return {"shows": result}
+
+@router.post("/upload")
+async def upload_to_spreaker(
+    payload: SpreakerUploadRequest,
+    current_user: User = Depends(get_current_user)
+):
+    if not current_user.spreaker_access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Spreaker not authenticated for this user.")
+
+    file_path = await run_in_threadpool(find_file_in_dirs, payload.filename)
+    if not file_path:
+        raise HTTPException(status_code=404, detail=f"Finalized episode file not found: {payload.filename}")
+
+    client = SpreakerClient(api_token=current_user.spreaker_access_token)
+    
+    success, result = await run_in_threadpool(
+        client.upload_episode,
+        show_id=payload.show_id,
+        title=payload.title,
+        file_path=str(file_path),
+        description=payload.description,
+        auto_published_at=payload.auto_published_at
+    )
+
+    if not success:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result)
+
+    return {"message": "Successfully uploaded to Spreaker", "details": result}

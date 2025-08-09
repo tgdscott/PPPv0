@@ -41,7 +41,9 @@ import EpisodeHistory from "@/components/dashboard/EpisodeHistory";
 import PodcastManager from "@/components/dashboard/PodcastManager";
 import RssImporter from "@/components/dashboard/RssImporter";
 import DevTools from "@/components/dashboard/DevTools";
+import TemplateWizard from "@/components/dashboard/TemplateWizard";
 import Settings from "@/components/dashboard/Settings";
+import TemplateManager from "@/components/dashboard/TemplateManager";
 
 export default function PodcastPlusDashboard() {
   const { token, logout } = useAuth();
@@ -104,39 +106,6 @@ export default function PodcastPlusDashboard() {
     }
   };
 
-  const renderTemplateManager = () => (
-    <div className="p-6">
-       <Button onClick={() => setCurrentView('dashboard')} variant="ghost" className="mb-4"><ArrowLeft className="w-4 h-4 mr-2" />Back to Dashboard</Button>
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">Template Manager</h1>
-        <Button onClick={() => handleEditTemplate('new')}><Plus className="w-4 h-4 mr-2" />Create New Template</Button>
-      </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Templates</CardTitle>
-            <CardDescription>Select a template to edit or create a new one.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {templates.length > 0 ? (
-              <div className="space-y-2">
-                {templates.map(template => (
-                  <div key={template.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                    <span className="font-semibold">{template.name}</span>
-                    <div className="space-x-2">
-                       <Button variant="outline" size="sm" onClick={() => handleEditTemplate(template.id)}><Edit className="w-4 h-4 mr-2"/>Edit</Button>
-                       <Button variant="destructive" size="sm" onClick={() => handleDeleteTemplate(template.id)}><Trash2 className="w-4 h-4 mr-2"/>Delete</Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p>No templates found. Get started by creating one!</p>
-            )}
-          </CardContent>
-        </Card>
-    </div>
-  );
-
   const renderDashboardContent = () => (
     <div className="grid lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 space-y-6">
@@ -186,7 +155,7 @@ export default function PodcastPlusDashboard() {
   const renderCurrentView = () => {
     switch (currentView) {
       case 'templateManager':
-        return renderTemplateManager();
+        return <TemplateManager onBack={() => setCurrentView('dashboard')} token={token} setCurrentView={setCurrentView} />;
       case 'editTemplate':
         return <TemplateEditor templateId={selectedTemplateId} onBack={handleBackToTemplateManager} token={token} onTemplateSaved={fetchData} />;
       case 'createEpisode':
@@ -203,6 +172,8 @@ export default function PodcastPlusDashboard() {
         return <DevTools token={token} />;
       case 'settings':
         return <Settings token={token} />;
+      case 'templateWizard':
+        return <TemplateWizard user={user} token={token} onBack={() => setCurrentView('templateManager')} onTemplateCreated={() => { fetchData(); setCurrentView('templateManager'); }} />;
       case 'dashboard':
       default:
         const canCreateEpisode = podcasts.length > 0 && templates.length > 0;

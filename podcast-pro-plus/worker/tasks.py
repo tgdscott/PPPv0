@@ -44,7 +44,7 @@ celery_app.conf.update(
 )
 
 @celery_app.task(name="create_podcast_episode")
-def create_podcast_episode(episode_id: str, template_id: str, main_content_filename: str, output_filename: str, tts_values: dict, episode_details: dict, user_id: str, podcast_id: str, spreaker_show_id: Optional[str] = None, spreaker_access_token: Optional[str] = None, auto_published_at: Optional[str] = None):
+def create_podcast_episode(episode_id: str, template_id: str, main_content_filename: str, output_filename: str, tts_values: dict, episode_details: dict, user_id: str, podcast_id: str, spreaker_show_id: Optional[str] = None, spreaker_access_token: Optional[str] = None, auto_published_at: Optional[str] = None, elevenlabs_api_key: Optional[str] = None):
     """
     Celery task to process and assemble a podcast episode.
     This task will run in the background and handle the entire audio processing workflow.

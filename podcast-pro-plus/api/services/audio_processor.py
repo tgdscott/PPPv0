@@ -49,7 +49,8 @@ def process_and_assemble_episode(
     output_filename: str,
     cleanup_options: Dict[str, bool],
     tts_overrides: Dict[str, str],
-    cover_image_path: Optional[str] = None
+    cover_image_path: Optional[str] = None,
+    elevenlabs_api_key: Optional[str] = None
 ) -> Tuple[Path, List[str]]:
     """
     The master function for the entire episode creation workflow.
