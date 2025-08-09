@@ -102,3 +102,8 @@ tests/
 transcripts/
 otherstuff/
 .vercel
+podcast-pro-plus/database.db
+podcast-pro-plus/media_uploads/
+podcast-pro-plus/final_episodes/
+*.sqlite
+*.db
