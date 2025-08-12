@@ -1,0 +1,214 @@
+from celery import Celery
+from dotenv import load_dotenv
+import os
+import logging
+from pathlib import Path
+import sys
+from typing import Optional
+from uuid import UUID
+
+# Logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# Env
+load_dotenv()
+
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Celery
+broker_url = os.getenv("RABBITMQ_URL", "amqp://guest:guest@127.0.0.1:5672//")
+celery_app = Celery("tasks", broker=broker_url, backend="rpc://")
+celery_app.conf.update(
+    imports=("worker.tasks",),
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+    broker_connection_retry_on_startup=True,
+)
+
+
+@celery_app.task(name="create_podcast_episode")
+def create_podcast_episode(
+    episode_id: str,
+    template_id: str,
+    main_content_filename: str,
+    output_filename: str,
+    tts_values: dict,
+    episode_details: dict,
+    user_id: str,
+    podcast_id: str,
+    spreaker_show_id: Optional[str] = None,
+    spreaker_access_token: Optional[str] = None,
+    auto_published_at: Optional[str] = None,
+    elevenlabs_api_key: Optional[str] = None,
+):
+    os.chdir(PROJECT_ROOT)
+    logging.info(f"[assemble] CWD = {os.getcwd()}")
+
+    from api.core.database import get_session
+    from api.core import crud
+    from api.models.podcast import Episode
+    from api.services import audio_processor
+
+    db = next(get_session())
+
+    try:
+        template = crud.get_template_by_id(db, UUID(template_id))
+        if not template:
+            raise Exception("Template not found")
+
+        episode = crud.get_episode_by_id(db, UUID(episode_id))
+        if not episode:
+            raise Exception(f"Episode with ID {episode_id} not found.")
+
+        # grab description from FE and stash in DB so publish step has it
+        desc = (episode_details or {}).get("description") or ""
+        cover_image_path = (episode_details or {}).get("cover_image_path") or (episode_details or {}).get("coverArt")  # tolerance
+
+        logging.info(f"[assemble] start: output={output_filename}, template={template_id}, user={user_id}")
+        if cover_image_path:
+            logging.info(f"[assemble] cover_image_path from FE: {cover_image_path}")
+
+        final_path, log = audio_processor.process_and_assemble_episode(
+            template=template,
+            main_content_filename=main_content_filename,
+            output_filename=output_filename,
+            cleanup_options={},
+            tts_overrides=tts_values,
+            cover_image_path=cover_image_path,
+        )
+
+        # persist episode
+        episode.status = "processed"
+        episode.final_audio_path = str(final_path)
+        # Save description and cover into DB so publish can use them
+        try:
+            episode.show_notes = desc
+        except Exception:
+            pass
+        try:
+            if cover_image_path:
+                episode.cover_path = cover_image_path
+        except Exception:
+            pass
+
+        db.add(episode)
+        db.commit()
+
+        logging.info(f"[assemble] done. final={final_path}")
+        return {"message": "Episode assembled successfully!", "episode_id": episode.id, "log": log}
+
+    except Exception as e:
+        logging.error(f"Error during episode assembly for {output_filename}: {e}", exc_info=True)
+        try:
+            if 'episode' in locals() and episode and getattr(episode, "id", None):
+                episode.status = "error"
+                db.add(episode)
+                db.commit()
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
+
+
+@celery_app.task(name="publish_episode_to_spreaker_task")
+def publish_episode_to_spreaker_task(
+    episode_id: str,
+    spreaker_show_id: str,
+    title: str,
+    description: Optional[str],
+    auto_published_at: Optional[str],
+    spreaker_access_token: str,
+    publish_state: str,
+):
+    os.chdir(PROJECT_ROOT)
+    logging.info(f"[publish] CWD = {os.getcwd()}")
+
+    from api.core.database import get_session
+    from api.core import crud
+    from api.models.podcast import Episode, EpisodeStatus, Podcast
+    from api.services.publisher import SpreakerClient
+
+    db = next(get_session())
+
+    try:
+        episode: Episode = crud.get_episode_by_id(db, UUID(episode_id))
+        if not episode:
+            raise Exception(f"Episode with ID {episode_id} not found.")
+
+        if not episode.final_audio_path:
+            raise Exception(f"Episode {episode_id} does not have a final audio path.")
+
+        # Prefer DB saved notes if caller didn't provide description
+        if not description:
+            try:
+                description = getattr(episode, "show_notes", None) or ""
+            except Exception:
+                description = ""
+
+        # Try to resolve a local image path (episode cover, else podcast cover)
+        image_file_path = None
+        try:
+            cover_candidate = getattr(episode, "cover_path", None)
+            if not cover_candidate and getattr(episode, "podcast_id", None):
+                pod: Podcast = db.query(Podcast).filter(Podcast.id == episode.podcast_id).first()
+                if pod and pod.cover_path:
+                    cover_candidate = pod.cover_path
+
+            if isinstance(cover_candidate, str) and cover_candidate and not cover_candidate.lower().startswith(("http://", "https://")):
+                p = Path(cover_candidate)
+                if not p.is_file():
+                    # most uploads live under media_uploads
+                    p2 = Path("media_uploads") / cover_candidate.lstrip("/\\")
+                    if p2.is_file():
+                        p = p2
+                if p.is_file():
+                    image_file_path = str(p)
+        except Exception:
+            image_file_path = None
+
+        client = SpreakerClient(api_token=spreaker_access_token)
+
+        ok, result = client.upload_episode(
+            show_id=str(spreaker_show_id),
+            title=title or episode.title,
+            file_path=str(episode.final_audio_path),
+            description=description or "",
+            auto_published_at=auto_published_at,
+            publish_state=publish_state,
+            image_file_path=image_file_path,
+        )
+
+        if ok:
+            # Mark published and store spreaker id if present
+            try:
+                ep_id = (result or {}).get("episode_id")
+            except Exception:
+                ep_id = None
+            episode.status = EpisodeStatus.published
+            if ep_id:
+                episode.spreaker_episode_id = str(ep_id)
+            episode.is_published_to_spreaker = True
+            db.add(episode)
+            db.commit()
+            logging.info(f"[publish] Success: {episode.title} → Spreaker (episode_id={ep_id})")
+        else:
+            episode.status = EpisodeStatus.error
+            db.add(episode)
+            db.commit()
+            logging.error(f"[publish] Failed: {episode.title} → Spreaker: {result}")
+
+    except Exception as e:
+        logging.error(f"Error during Spreaker publishing for episode {episode_id}: {e}", exc_info=True)
+        try:
+            if 'episode' in locals() and episode and getattr(episode, "id", None):
+                episode.status = EpisodeStatus.error
+                db.add(episode)
+                db.commit()
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()

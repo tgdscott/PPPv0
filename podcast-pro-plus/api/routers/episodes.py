@@ -1,217 +1,275 @@
-import shutil
-from fastapi import APIRouter, HTTPException, status, Body, Depends
-from pydantic import BaseModel
-from pathlib import Path
-from typing import List, Optional, Dict, Any
-from uuid import UUID
 import os
-from sqlmodel import Session, select
+from typing import Optional, Dict, Any
+from datetime import datetime
 
-from worker.tasks import create_podcast_episode, celery_app, publish_episode_to_spreaker_task
+from fastapi import APIRouter, Depends, HTTPException, Body, status, Query
+from sqlalchemy.orm import Session
 
-from ..services import audio_processor, transcription, ai_enhancer, publisher
-from ..core.database import get_session
-from ..core import crud
-from ..models.user import User
-from ..models.podcast import Episode, Podcast
-from .auth import get_current_user
+from api.core.database import get_session
+from api.core.auth import get_current_user
+from api.models.user import User
+from api.models.podcast import Episode, Podcast
+try:
+    # Some repos define an Enum; if not, we’ll just use strings
+    from api.models.podcast import EpisodeStatus
+    HAS_EPISODE_STATUS = True
+except Exception:
+    HAS_EPISODE_STATUS = False
 
-router = APIRouter(
-    prefix="/episodes",
-    tags=["Episodes"],
-)
+from worker.tasks import celery_app, create_podcast_episode, publish_episode_to_spreaker_task
 
-UPLOAD_DIR = Path("temp_uploads")
-CLEANED_DIR = Path("cleaned_audio")
-EDITED_DIR = Path("edited_audio")
-OUTPUT_DIR = Path("final_episodes")
+router = APIRouter(prefix="/episodes", tags=["episodes"])
 
-class AssembleRequestBody(BaseModel):
-    template_id: UUID
-    main_content_filename: str
-    output_filename: str
-    tts_values: Dict[str, str] = {}
-    episode_details: Dict[str, Any] = {}
-    spreaker_show_id: Optional[str] = None
+# --- helpers -----------------------------------------------------------------
 
+def _final_url_for(path: Optional[str]) -> Optional[str]:
+    """Map final_episodes/<file> -> /static/final/<file>"""
+    if not path:
+        return None
+    base = os.path.basename(path)
+    return f"/static/final/{base}"
 
-def find_file_in_dirs(filename: str) -> Optional[Path]:
-    for directory in [UPLOAD_DIR, CLEANED_DIR, EDITED_DIR, OUTPUT_DIR]:
-        path = directory / filename
-        if path.exists():
-            return path
-    return None
+def _cover_url_for(path: Optional[str]) -> Optional[str]:
+    """Map a stored local cover path to /static/media/*, or passthrough if HTTP(S)."""
+    if not path:
+        return None
+    p = str(path)
+    if p.lower().startswith(("http://", "https://")):
+        return p
+    # Keep relative subfolders if any; normalize \ -> /
+    p = p.replace("\\", "/")
+    # if already looks like a filename, just mount under /static/media
+    return f"/static/media/{os.path.basename(p)}" if "/" not in p else f"/static/media/{p.split('/')[-1]}"
 
-@router.get("/", response_model=List[Episode])
-async def get_user_episodes(
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    statement = select(Episode).where(Episode.user_id == current_user.id)
-    episodes = session.exec(statement).all()
-    return episodes
+def _status_value(v: str) -> str:
+    # Normalize string/enum to simple string for FE
+    if HAS_EPISODE_STATUS:
+        return v.value if hasattr(v, "value") else str(v)
+    return str(v)
+
+def _first_podcast_for_user(session: Session, user_id: str) -> Optional[Podcast]:
+    return (
+        session.query(Podcast)
+        .filter(Podcast.user_id == user_id)
+        .first()
+    )
+
+# --- routes ------------------------------------------------------------------
 
 @router.post("/assemble", status_code=status.HTTP_202_ACCEPTED)
-async def assemble_episode_endpoint(
-    body: AssembleRequestBody,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    template = crud.get_template_by_id(session=session, template_id=body.template_id)
-    if not template or template.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Invalid template.")
-
-    user_podcasts = session.exec(select(Podcast).where(Podcast.user_id == current_user.id)).all()
-    if not user_podcasts:
-        raise HTTPException(status_code=404, detail="No podcast (show) found for this user. Please create one first.")
-    podcast = user_podcasts[0]
-
-    new_episode = Episode(
-        user_id=current_user.id,
-        template_id=template.id,
-        podcast_id=podcast.id,
-        title=body.episode_details.get('title', body.output_filename),
-        description=body.episode_details.get('description', ''),
-        season_number=body.episode_details.get('season'),
-        episode_number=body.episode_details.get('episodeNumber'),
-        status="processing"
-    )
-    session.add(new_episode)
-    session.commit()
-    session.refresh(new_episode)
-
-    print("DEBUG: Entering Celery task dispatch block.")
-    try:
-        # Dispatch the task to the Celery worker
-        print("DEBUG: Attempting to dispatch Celery task.")
-        task = create_podcast_episode.delay(
-            episode_id=str(new_episode.id),
-            template_id=str(template.id),
-            main_content_filename=body.main_content_filename,
-            output_filename=body.output_filename,
-            tts_values=body.tts_values,
-            episode_details=body.episode_details,
-            user_id=str(current_user.id),
-            podcast_id=str(podcast.id),
-            elevenlabs_api_key=current_user.elevenlabs_api_key
-        )
-        print(f"DEBUG: Celery task ID: {task.id}")
-        return {"message": "Episode assembly has been queued.", "job_id": task.id}
-    except Exception as e:
-        print(f"ERROR: Failed to dispatch Celery task: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to queue episode assembly: {e}")
-
-@router.get("/status/{{job_id}}")
-async def get_job_status(job_id: str):
-    task = celery_app.AsyncResult(job_id)
-    status = getattr(task, "status", "PENDING")
-    result = getattr(task, "result", None)
-
-    # Celery may return a JSON string; normalize
-    payload = None
-    try:
-        if isinstance(result, str):
-            import json as _json
-            payload = _json.loads(result)
-        elif isinstance(result, dict):
-            payload = result
-    except Exception:
-        payload = {{"raw_result": str(result)}}
-
-    if status == "SUCCESS":
-        ep_id = None
-        if isinstance(payload, dict):
-            ep_id = payload.get("episode_id")
-        return {{"job_id": job_id, "status": "processed", "episode": {{"id": ep_id}}, "message": (payload or {{}}).get("message")}}
-    if status in ("STARTED", "RETRY"):
-        return {{"job_id": job_id, "status": "processing"}}
-    if status == "PENDING":
-        return {{"job_id": job_id, "status": "queued"}}
-    # FAILURE or anything else
-    err = None
-    if isinstance(payload, dict):
-        err = payload.get("error") or payload.get("detail")
-    if not err:
-        err = str(result)
-    return {{"job_id": job_id, "status": "error", "error": err}}
-
-
-@router.post("/generate-metadata/{filename}", status_code=status.HTTP_200_OK)
-async def generate_metadata_endpoint(filename: str, current_user: User = Depends(get_current_user)):
-    file_path = find_file_in_dirs(filename)
-    if not file_path:
-        raise HTTPException(status_code=404, detail=f"File '{filename}' not found in any directory.")
-    try:
-        temp_upload_path = UPLOAD_DIR / file_path.name
-        shutil.copy(file_path, temp_upload_path)
-
-        word_timestamps = transcription.get_word_timestamps(temp_upload_path.name)
-        if not word_timestamps:
-            raise HTTPException(status_code=400, detail="Transcript is empty.")
-        
-        full_transcript = " ".join([word['word'] for word in word_timestamps])
-        metadata = ai_enhancer.generate_metadata_from_transcript(full_transcript)
-        
-        os.remove(temp_upload_path)
-
-        return metadata
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
-
-@router.post("/publish/{episode_id}", status_code=status.HTTP_202_ACCEPTED)
-@router.post("/{episode_id}/publish", status_code=status.HTTP_202_ACCEPTED)
-
-async def publish_episode(
-    episode_id: UUID,
+def assemble_episode(
+    payload: Dict[str, Any],
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-    spreaker_show_id: str = Body(..., embed=True),
-    publish_state: str = Body(..., embed=True)
 ):
-    if not current_user.spreaker_access_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Spreaker not authenticated for this user.")
+    """
+    Body (from FE):
+    {
+      "template_id": "...",
+      "main_content_filename": "...",
+      "output_filename": "...",
+      "tts_values": {...},                     (optional)
+      "episode_details": {
+         "title": "...",
+         "description": "...",
+         "season": "1",
+         "episodeNumber": "2",
+         "cover_image_path": "filename-or-path.ext"   (optional; set by /media/upload/cover_art)
+      }
+    }
+    """
+    template_id = payload.get("template_id")
+    main_content_filename = payload.get("main_content_filename")
+    output_filename = payload.get("output_filename")
+    tts_values = payload.get("tts_values") or {}
+    episode_details = payload.get("episode_details") or {}
 
-    episode = crud.get_episode_by_id(session, episode_id)
-    if not episode or episode.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail=f"Episode with id '{episode_id}' not found.")
+    if not template_id or not main_content_filename or not output_filename:
+        raise HTTPException(status_code=400, detail="template_id, main_content_filename, output_filename are required.")
 
-    try:
-        task = publish_episode_to_spreaker_task.delay(
-            episode_id=str(episode.id),
-            spreaker_show_id=spreaker_show_id,
-            title=episode.title,
-            description=episode.description,
-            auto_published_at=None, # Scheduling is not implemented yet
-            spreaker_access_token=current_user.spreaker_access_token,
-            publish_state=publish_state
-        )
-        return {"message": "Episode publishing to Spreaker has been queued.", "job_id": task.id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to queue Spreaker publishing task: {e}")
+    # Episode metadata
+    ep_title = (episode_details.get("title") or output_filename or "").strip() or "Untitled Episode"
+    ep_description = (episode_details.get("description") or "").strip()  # store as episode.show_notes
+    cover_image_path = episode_details.get("cover_image_path")
+
+    # Link to a podcast (show) if present; we pick the first for the user
+    podcast = _first_podcast_for_user(session, current_user.id)
+    podcast_id = podcast.id if podcast else None
+
+    # Create a DB row immediately with status 'processing'
+    ep = Episode(
+        user_id=current_user.id,
+        template_id=template_id,
+        podcast_id=podcast_id,
+        title=ep_title,
+        cover_path=cover_image_path,
+        show_notes=ep_description,
+        status=(EpisodeStatus.processing if HAS_EPISODE_STATUS else "processing"),
+        processed_at=datetime.utcnow(),
+    )
+    session.add(ep)
+    session.commit()
+    session.refresh(ep)
+
+    # Kick off Celery job
+    # We pass through cover_image_path inside episode_details for the worker to use
+    ed = dict(episode_details)
+    if cover_image_path:
+        ed["cover_image_path"] = cover_image_path
+
+    # optional keys we might have on user
+    spreaker_access_token = getattr(current_user, "spreaker_access_token", None)
+    elevenlabs_api_key = getattr(current_user, "elevenlabs_api_key", None)
+
+    async_result = create_podcast_episode.delay(
+        episode_id=str(ep.id),
+        template_id=str(template_id),
+        main_content_filename=str(main_content_filename),
+        output_filename=str(output_filename),
+        tts_values=tts_values,
+        episode_details=ed,
+        user_id=str(current_user.id),
+        podcast_id=str(podcast_id) if podcast_id else "",
+        spreaker_show_id=None,
+        spreaker_access_token=spreaker_access_token,
+        auto_published_at=None,
+        elevenlabs_api_key=elevenlabs_api_key,
+    )
+
+    return {
+        "job_id": async_result.id,
+        "status": "queued",
+        "episode_id": str(ep.id),
+        "message": "Episode assembly has been queued."
+    }
+
+
+@router.get("/status/{job_id}")
+def get_job_status(job_id: str, session: Session = Depends(get_session)):
+    task = celery_app.AsyncResult(job_id)
+    status_val = getattr(task, "status", "PENDING")
+    result = getattr(task, "result", None)
+
+    # On success, return full assembled episode details FE expects
+    if status_val == "SUCCESS":
+        # The worker returns {'message':..., 'episode_id': <uuid>, 'log': [...]}
+        ep_id = None
+        if isinstance(result, dict):
+            ep_id = result.get("episode_id")
+        else:
+            # sometimes Celery serializes to string
+            try:
+                import json
+                data = json.loads(result)
+                ep_id = data.get("episode_id")
+            except Exception:
+                ep_id = None
+
+        if not ep_id:
+            return {"job_id": job_id, "status": "processed"}
+
+        ep = session.query(Episode).filter(Episode.id == str(ep_id)).first()
+        if not ep:
+            return {"job_id": job_id, "status": "processed"}
+
+        assembled = {
+            "id": str(ep.id),
+            "title": ep.title,
+            "description": ep.show_notes or "",
+            "final_audio_url": _final_url_for(ep.final_audio_path),
+            "cover_url": _cover_url_for(ep.cover_path),
+            "status": _status_value(ep.status),
+        }
+        return {"job_id": job_id, "status": "processed", "episode": assembled, "message": (result.get("message") if isinstance(result, dict) else None)}
+
+    if status_val in ("STARTED", "RETRY"):
+        return {"job_id": job_id, "status": "processing"}
+    if status_val == "PENDING":
+        return {"job_id": job_id, "status": "queued"}
+
+    # FAILURE or other
+    err_text = None
+    if isinstance(result, dict):
+        err_text = result.get("error") or result.get("detail")
+    if not err_text:
+        err_text = str(result)
+    return {"job_id": job_id, "status": "error", "error": err_text}
+
+
+# Keep both shapes to match FE call: /publish/{id} and /{id}/publish
+@router.post("/publish/{episode_id}", status_code=status.HTTP_200_OK)
+@router.post("/{episode_id}/publish", status_code=status.HTTP_200_OK)
+def publish_episode_endpoint(
+    episode_id: str,
+    spreaker_show_id: str = Body(..., embed=True),
+    publish_state: str = Body(..., embed=True),  # e.g. 'unpublished' | 'public'
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    ep = session.query(Episode).filter(Episode.id == episode_id, Episode.user_id == current_user.id).first()
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    if not ep.final_audio_path:
+        raise HTTPException(status_code=400, detail="Episode is not processed yet")
+
+    spreaker_access_token = getattr(current_user, "spreaker_access_token", None)
+    if not spreaker_access_token:
+        raise HTTPException(status_code=401, detail="User is not connected to Spreaker")
+
+    # Prefer episode.show_notes for description
+    description = ep.show_notes or ""
+
+    async_result = publish_episode_to_spreaker_task.delay(
+        episode_id=str(ep.id),
+        spreaker_show_id=str(spreaker_show_id),
+        title=str(ep.title or "Untitled Episode"),
+        description=description,
+        auto_published_at=None,
+        spreaker_access_token=spreaker_access_token,
+        publish_state=publish_state,
+    )
+
+    return {"message": "Publish request submitted to Spreaker.", "job_id": async_result.id}
+
+
+@router.get("/", status_code=status.HTTP_200_OK)
+def list_episodes(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    limit: int = Query(100, ge=1, le=500),
+):
+    eps = (
+        session.query(Episode)
+        .filter(Episode.user_id == current_user.id)
+        .order_by(Episode.processed_at.desc())
+        .limit(limit)
+        .all()
+    )
+    items = []
+    for e in eps:
+        items.append({
+            "id": str(e.id),
+            "title": e.title,
+            "status": _status_value(e.status),
+            "processed_at": e.processed_at.isoformat() if getattr(e, "processed_at", None) else None,
+            "final_audio_url": _final_url_for(e.final_audio_path),
+            "cover_url": _cover_url_for(e.cover_path),
+            "spreaker_episode_id": getattr(e, "spreaker_episode_id", None),
+            "is_published_to_spreaker": bool(getattr(e, "is_published_to_spreaker", False)),
+        })
+    return {"items": items}
+
 
 @router.delete("/{episode_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_episode(
-    episode_id: UUID,
+def delete_episode(
+    episode_id: str,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    print(f"Attempting to delete episode with ID: {episode_id}")
-    episode = crud.get_episode_by_id(session, episode_id)
-    if not episode:
-        print(f"Episode with ID: {episode_id} not found.")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found.")
-    
-    if episode.user_id != current_user.id:
-        print(f"User {current_user.id} does not have permission to delete episode {episode_id}.")
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete this episode.")
-
-    try:
-        session.delete(episode)
-        session.commit()
-        print(f"Episode {episode_id} deleted successfully from database.")
-        # No content to return for 204, so just return
-        return
-    except Exception as e:
-        session.rollback()
-        print(f"Error deleting episode {episode_id}: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete episode: {e}")
+    ep = session.query(Episode).filter(Episode.id == episode_id, Episode.user_id == current_user.id).first()
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    session.delete(ep)
+    session.commit()
+    return

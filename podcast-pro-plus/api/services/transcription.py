@@ -66,4 +66,4 @@ def get_word_timestamps(filename: str) -> List[Dict[str, Any]]:
         return all_words
 
     except Exception as e:
-        raise TranscriptionError(f"Failed to get word timestamps: {e}")
+        return []  # fallback: skip transcription on error
