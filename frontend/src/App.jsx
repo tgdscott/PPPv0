@@ -1,3 +1,5 @@
+import ProtectedRoute from "./components/common/ProtectedRoute";
+import PodcastPublisherTool from "./components/dashboard/PodcastPublisherTool";
 import React, { useEffect, useState } from 'react';
 import { useAuth } from './AuthContext.jsx'; 
 import PodcastPlusDashboard from '@/components/dashboard.jsx'; // The regular user dashboard
