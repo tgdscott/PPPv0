@@ -1,4 +1,4 @@
-import ProtectedRoute from "./components/common/ProtectedRoute";
+import ProtectedRoute from "./components/common/ProtectedRoute.jsx";
 import ProtectedRoute from "./components/common/ProtectedRoute.jsx";
 import PodcastPublisherTool from "./components/dashboard/PodcastPublisherTool";
 import React, { useEffect, useState } from 'react';
