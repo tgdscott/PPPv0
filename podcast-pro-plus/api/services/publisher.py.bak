@@ -1,0 +1,152 @@
+import requests
+from typing import Tuple, List, Dict, Optional
+
+API_BASE = "https://api.spreaker.com/v2"
+
+
+class SpreakerClient:
+    def __init__(self, api_token: str):
+        self.api_token = api_token
+
+    def _headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self.api_token}",
+            "Accept": "application/json",
+        }
+
+    def _get(self, path: str, params: Optional[Dict] = None):
+        url = f"{API_BASE}{path}"
+        r = requests.get(url, headers=self._headers(), params=params, timeout=30)
+        return r
+
+    def _post(self, path: str, *, data: Dict, files: Optional[Dict] = None):
+        url = f"{API_BASE}{path}"
+        r = requests.post(url, headers=self._headers(), data=data, files=files, timeout=120)
+        return r
+
+    # --- Public methods ---
+
+    def get_shows(self) -> Tuple[bool, List[Dict]]:
+        """
+        Returns a simplified list of shows for the authenticated user:
+        [{ show_id, title, image_url, image_original_url, explicit, author_id, last_episode_at, slug, site_url, category, category_2, category_3 }]
+        """
+        # 1) who am I?
+        me = self._get("/me")
+        if me.status_code != 200:
+            try:
+                j = me.json()
+                msg = j.get("response", {}).get("error", {}).get("messages") or str(j)
+            except Exception:
+                msg = me.text
+            return False, f"GET /me failed: {msg}"
+
+        user_id = me.json().get("response", {}).get("user", {}).get("user_id")
+        if not user_id:
+            return False, "Could not resolve user_id from /me."
+
+        # 2) list shows (use pagination safety but one page is enough for MVP)
+        r = self._get(f"/users/{user_id}/shows", params={"limit": 100})
+        if r.status_code != 200:
+            try:
+                j = r.json()
+                msg = j.get("response", {}).get("error", {}).get("messages") or str(j)
+            except Exception:
+                msg = r.text
+            return False, f"GET /users/{user_id}/shows failed: {msg}"
+
+        items = r.json().get("response", {}).get("items", []) or []
+        shows: List[Dict] = []
+        for it in items:
+            shows.append({
+                "show_id": it.get("show_id"),
+                "title": it.get("title"),
+                "image_url": it.get("image_url"),
+                "image_original_url": it.get("image_original_url"),
+                "explicit": it.get("explicit"),
+                "author_id": it.get("author_id"),
+                "last_episode_at": it.get("last_episode_at"),
+                "slug": it.get("slug"),
+                "site_url": it.get("site_url"),
+                "category": it.get("category"),
+                "category_2": it.get("category_2"),
+                "category_3": it.get("category_3"),
+            })
+        return True, shows
+
+    def upload_episode(
+        self,
+        *,
+        show_id: str,
+        title: str,
+        file_path: str,
+        description: Optional[str] = None,
+        auto_published_at: Optional[str] = None,
+        publish_state: Optional[str] = None,
+        image_file_path: Optional[str] = None,
+    ) -> Tuple[bool, Dict]:
+        """
+        POST /v2/shows/{SHOW-ID}/episodes
+        Required: media_file, title
+        Optional: description, image_file, auto_published_at, visibility/publish_state
+
+        Returns (ok, result)
+          ok=True  -> {"episode_id": <id>, "raw": <full response json>}
+          ok=False -> {"error": <message>, "raw": <full response json if available>}
+        """
+        data = {"title": title}
+        if description:
+            data["description"] = description  # <-- important
+        if auto_published_at:
+            data["auto_published_at"] = auto_published_at
+
+        # Spreaker commonly uses "visibility" (PUBLIC|PRIVATE|LIMITED). We've previously used "publish_state".
+        # To be safe, set both if provided.
+        if publish_state:
+            data["publish_state"] = publish_state
+            # map common lowercase to visibility if needed
+            vis = publish_state.upper()
+            if vis in ("PUBLIC", "PRIVATE", "LIMITED"):
+                data["visibility"] = vis
+
+        files = {}
+        # media file
+        media_fh = open(file_path, "rb")
+        files["media_file"] = (file_path.split("/")[-1], media_fh, "audio/mpeg")
+
+        # optional image
+        image_fh = None
+        if image_file_path:
+            try:
+                image_fh = open(image_file_path, "rb")
+                # allow server-side type sniffing
+                files["image_file"] = (image_file_path.split("/")[-1], image_fh)
+            except Exception:
+                image_fh = None  # ignore bad image path
+
+        try:
+            r = self._post(f"/shows/{show_id}/episodes", data=data, files=files)
+        finally:
+            # make sure files are closed
+            try:
+                media_fh.close()
+            except Exception:
+                pass
+            if image_fh:
+                try:
+                    image_fh.close()
+                except Exception:
+                    pass
+
+        try:
+            j = r.json()
+        except Exception:
+            j = {"raw_text": r.text}
+
+        if r.status_code not in (200, 201):
+            msg = j.get("response", {}).get("error", {}).get("messages") if isinstance(j, dict) else None
+            return False, {"error": msg or f"HTTP {r.status_code}", "raw": j}
+
+        episode = j.get("response", {}).get("episode") if isinstance(j, dict) else None
+        ep_id = (episode or {}).get("episode_id") if episode else None
+        return True, {"episode_id": ep_id, "raw": j}

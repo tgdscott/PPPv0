@@ -135,3 +135,8 @@ class Episode(SQLModel, table=True):
 
     processed_at: datetime = Field(default_factory=datetime.utcnow)
     publish_at: Optional[datetime] = Field(default=None)
+    # Compatibility: legacy .description maps to .show_notes
+    @property
+    def description(self):
+        return getattr(self, 'show_notes', None)
+

@@ -1,60 +1,70 @@
+import api.db_listeners  # registers SQLAlchemy listeners
+from api.routers.media_upload_alias import router as media_upload_alias_router
+from api.routers.episodes_publish_alias import router as episodes_publish_alias_router
+from api.routers.auth_me import router as auth_me_router
+from api.routers.health import router as health_router
+from api.exceptions import install_exception_handlers
+from api.middleware.request_id import RequestIDMiddleware
+import os
+from pathlib import Path
+
 from fastapi import FastAPI
-from contextlib import asynccontextmanager
-from starlette.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.staticfiles import StaticFiles
-import starlette
 
-print(f"Starlette version: {starlette.__version__}")
+from .routers import episodes, spreaker, templates, media, users, admin, podcasts, importer, wizard, auth
 
-from .core.database import create_db_and_tables
-from .core.config import settings
-from .routers import templates, episodes, auth, media, users, admin, podcasts, importer, dev, spreaker, wizard
-from worker.tasks import celery_app
+APP_ROOT = Path(__file__).resolve().parent.parent
+FINAL_DIR = APP_ROOT / "final_episodes"
+MEDIA_DIR = APP_ROOT / "media_uploads"
+FINAL_DIR.mkdir(parents=True, exist_ok=True)
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    create_db_and_tables()
-    yield
+app = FastAPI(title="Podcast Pro Plus API")
+app.include_router(media_upload_alias_router)
+app.include_router(episodes_publish_alias_router)
+app.add_middleware(RequestIDMiddleware)
+install_exception_handlers(app)
+app.include_router(health_router)
+app.include_router(auth_me_router)
 
-app = FastAPI(lifespan=lifespan)
-
-# Mount the directory for serving uploaded media files
-app.mount("/media_uploads", StaticFiles(directory="media_uploads"), name="media_uploads")
-
+# --- Sessions for OAuth (required by authlib/google) ---
+SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-insecure-session-secret-change-me")
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.SESSION_SECRET_KEY
+    secret_key=SESSION_SECRET,
+    session_cookie="ppp_session",
+    max_age=60 * 60 * 24 * 14,  # 14 days
+    same_site="lax",
+    https_only=False,  # set True behind HTTPS/proxy in prod
 )
 
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://0985ef59e207.ngrok-free.app",
-    "https://59c2e2f840ab.ngrok-free.app"
-]
-
+# --- CORS (relaxed for local dev) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
-app.include_router(auth.router)
+# --- Static for audio/images ---
+app.mount("/static/final", StaticFiles(directory=str(FINAL_DIR)), name="final")
+app.mount("/static/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
+
+# --- Routers (only under /api; avoid duplicates) ---
 app.include_router(auth.router, prefix="/api")
+app.include_router(episodes.router, prefix="/api")
+app.include_router(spreaker.router, prefix="/api")
+app.include_router(templates.router, prefix="/api")
+app.include_router(media.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(podcasts.router, prefix="/api")
-app.include_router(templates.router, prefix="/api")
-app.include_router(media.router, prefix="/api")
-app.include_router(episodes.router, prefix="/api")
 app.include_router(importer.router, prefix="/api")
-app.include_router(dev.router, prefix="/api")
-app.include_router(spreaker.router, prefix="/api")
-app.include_router(wizard.router, prefix="/api/wizard")
+app.include_router(wizard.router, prefix="/api")
 
 @app.get("/")
-def read_root():
-    return {"message": "Welcome to the Podcast Pro Plus API"}
+def root():
+    return {"ok": True}

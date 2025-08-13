@@ -1,0 +1,151 @@
+--- a/podcast-pro-plus/api/routers/episodes.py
++++ b/podcast-pro-plus/api/routers/episodes.py
+@@ -101,15 +101,39 @@
+         print(f"ERROR: Failed to dispatch Celery task: {e}")
+
+         raise HTTPException(status_code=500, detail=f"Failed to queue episode assembly: {e}")
+
+ 
+
+-@router.get("/status/{job_id}")
+
++@router.get("/status/{{job_id}}")
+
+ async def get_job_status(job_id: str):
+
+-    task_result = celery_app.AsyncResult(job_id)
+
+-    response = {
+
+-        "job_id": job_id,
+
+-        "status": task_result.status,
+
+-        "result": task_result.result
+
+-    }
+
+-    return response
+
++    task = celery_app.AsyncResult(job_id)
+
++    status = getattr(task, "status", "PENDING")
+
++    result = getattr(task, "result", None)
+
++
+
++    # Celery may return a JSON string; normalize
+
++    payload = None
+
++    try:
+
++        if isinstance(result, str):
+
++            import json as _json
+
++            payload = _json.loads(result)
+
++        elif isinstance(result, dict):
+
++            payload = result
+
++    except Exception:
+
++        payload = {{"raw_result": str(result)}}
+
++
+
++    if status == "SUCCESS":
+
++        ep_id = None
+
++        if isinstance(payload, dict):
+
++            ep_id = payload.get("episode_id")
+
++        return {{"job_id": job_id, "status": "processed", "episode": {{"id": ep_id}}, "message": (payload or {{}}).get("message")}}
+
++    if status in ("STARTED", "RETRY"):
+
++        return {{"job_id": job_id, "status": "processing"}}
+
++    if status == "PENDING":
+
++        return {{"job_id": job_id, "status": "queued"}}
+
++    # FAILURE or anything else
+
++    err = None
+
++    if isinstance(payload, dict):
+
++        err = payload.get("error") or payload.get("detail")
+
++    if not err:
+
++        err = str(result)
+
++    return {{"job_id": job_id, "status": "error", "error": err}}
+
+ 
+
+ 
+
+ @router.post("/generate-metadata/{filename}", status_code=status.HTTP_200_OK)
+
+@@ -135,6 +159,8 @@
+         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
+ 
+
+ @router.post("/publish/{episode_id}", status_code=status.HTTP_202_ACCEPTED)
+
++@router.post("/{episode_id}/publish", status_code=status.HTTP_202_ACCEPTED)
+
++
+
+ async def publish_episode(
+
+     episode_id: UUID,
+
+     session: Session = Depends(get_session),
+
+
+--- a/podcast-pro-plus/api/main.py
++++ b/podcast-pro-plus/api/main.py
+@@ -42,7 +42,6 @@
+     allow_headers=["*"],
+
+ )
+
+ 
+
+-app.include_router(auth.router)
+
+ app.include_router(auth.router, prefix="/api")
+
+ app.include_router(users.router, prefix="/api")
+
+ app.include_router(admin.router, prefix="/api")
+
+
+--- a/.gitignore
++++ b/.gitignore
+@@ -102,3 +102,8 @@
+ transcripts/
+
+ otherstuff/
+
+ .vercel
+
++podcast-pro-plus/database.db
+
++podcast-pro-plus/media_uploads/
+
++podcast-pro-plus/final_episodes/
+
++*.sqlite
+
++*.db
