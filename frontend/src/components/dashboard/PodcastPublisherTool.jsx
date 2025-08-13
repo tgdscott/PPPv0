@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 // Use the tiny API client we added in PR1
 // Relative import keeps us safe regardless of aliases
-import { api } from "../../lib/apiClient";
+import { api } from "../../lib/apiClient.js";
 
 const API_BASE = (import.meta && import.meta.env && import.meta.env.VITE_API_BASE) || "";
 
