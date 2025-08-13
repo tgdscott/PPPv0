@@ -1,3 +1,10 @@
+import api.db_listeners  # registers SQLAlchemy listeners
+from api.routers.media_upload_alias import router as media_upload_alias_router
+from api.routers.episodes_publish_alias import router as episodes_publish_alias_router
+from api.routers.auth_me import router as auth_me_router
+from api.routers.health import router as health_router
+from api.exceptions import install_exception_handlers
+from api.middleware.request_id import RequestIDMiddleware
 import os
 from pathlib import Path
 
@@ -15,6 +22,12 @@ FINAL_DIR.mkdir(parents=True, exist_ok=True)
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Podcast Pro Plus API")
+app.include_router(media_upload_alias_router)
+app.include_router(episodes_publish_alias_router)
+app.add_middleware(RequestIDMiddleware)
+install_exception_handlers(app)
+app.include_router(health_router)
+app.include_router(auth_me_router)
 
 # --- Sessions for OAuth (required by authlib/google) ---
 SESSION_SECRET = os.getenv("SESSION_SECRET", "dev-insecure-session-secret-change-me")
