@@ -1,3 +1,4 @@
+import api.db_listeners  # registers SQLAlchemy listeners
 from api.routers.media_upload_alias import router as media_upload_alias_router
 from api.routers.episodes_publish_alias import router as episodes_publish_alias_router
 from api.routers.auth_me import router as auth_me_router
