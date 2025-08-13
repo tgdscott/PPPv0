@@ -1,0 +1,42 @@
+# .github/workflows/ppp-agent.yml
+name: PPP Agent
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: Which task to apply
+        required: true
+        type: choice
+        options: [pr2, pr3, pr4, pr5a, pr5b, pr5c, pr5d]
+        default: pr5b
+      base_branch:
+        description: Branch to patch
+        required: true
+        default: chatgpt5
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_branch }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run agent task
+        run: bash scripts/ppp_agent_runner.sh "${{ inputs.task }}"
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "agent: apply ${{ inputs.task }}"
+          title: "agent: apply ${{ inputs.task }}"
+          branch: "agent/${{ inputs.task }}-${{ github.run_id }}"
+          base: ${{ inputs.base_branch }}
