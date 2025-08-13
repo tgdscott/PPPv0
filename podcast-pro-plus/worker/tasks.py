@@ -71,7 +71,8 @@ def create_podcast_episode(
         )
 
         episode.status = "processed"
-        episode.final_audio_path = str(final_path)
+        # Store only basename so static URL mapping remains consistent
+        episode.final_audio_path = os.path.basename(str(final_path))
         # (Optional) persist cover file name if present
         if cover_image_path and not getattr(episode, "cover_path", None):
             episode.cover_path = Path(cover_image_path).name

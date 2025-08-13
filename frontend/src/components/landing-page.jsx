@@ -27,6 +27,7 @@ const LoginModal = ({ onClose }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [mode, setMode] = useState('login'); // 'login' | 'register'
 
     const handleEmailLogin = async (e) => {
         e.preventDefault();
@@ -35,16 +36,12 @@ const LoginModal = ({ onClose }) => {
             const response = await fetch('/api/auth/token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({
-                    username: email,
-                    password: password,
-                }),
+                body: new URLSearchParams({ username: email, password }),
             });
-
             if (response.ok) {
                 const data = await response.json();
                 login(data.access_token);
-                onClose(); // Close modal on successful login
+                onClose();
             } else {
                 const errorData = await response.json();
                 setError(errorData.detail || 'Invalid email or password.');
@@ -54,15 +51,36 @@ const LoginModal = ({ onClose }) => {
         }
     };
 
+    const handleRegister = async (e) => {
+        e.preventDefault();
+        setError('');
+        try {
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            if (response.ok) {
+                // Auto-login after registration
+                await handleEmailLogin(e);
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setError(errorData.detail || 'Registration failed.');
+            }
+        } catch (err) {
+            setError('Registration error. Please try again.');
+        }
+    };
+
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <Card className="w-full max-w-md mx-4">
                 <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Sign In</CardTitle>
+                    <CardTitle>{mode === 'login' ? 'Sign In' : 'Create Account'}</CardTitle>
                     <Button variant="ghost" size="sm" onClick={onClose}><X className="w-4 h-4" /></Button>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleEmailLogin} className="space-y-4">
+                    <form onSubmit={mode === 'login' ? handleEmailLogin : handleRegister} className="space-y-4">
                         <div className="space-y-2">
                             <Label htmlFor="email">Email</Label>
                             <Input id="email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
@@ -72,7 +90,10 @@ const LoginModal = ({ onClose }) => {
                             <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
                         </div>
                         {error && <p className="text-sm text-red-500">{error}</p>}
-                        <Button type="submit" className="w-full">Sign In with Email</Button>
+                        <Button type="submit" className="w-full">{mode === 'login' ? 'Sign In with Email' : 'Create Account'}</Button>
+                        <button type="button" onClick={() => { setMode(m => m === 'login' ? 'register' : 'login'); setError(''); }} className="w-full text-xs text-blue-600 hover:underline">
+                            {mode === 'login' ? "Need an account? Sign up" : "Have an account? Sign in"}
+                        </button>
                     </form>
                     <div className="relative my-4">
                         <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>

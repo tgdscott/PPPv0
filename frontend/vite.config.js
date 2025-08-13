@@ -17,6 +17,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      // Proxy static asset requests (audio, covers) to backend FastAPI server
+      '/static': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
     // Add a fallback for HTML5 history API routing
     // This ensures that all non-API requests are served by index.html

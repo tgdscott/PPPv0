@@ -23,23 +23,19 @@ router = APIRouter(prefix="/episodes", tags=["episodes"])
 # --- helpers -----------------------------------------------------------------
 
 def _final_url_for(path: Optional[str]) -> Optional[str]:
-    """Map final_episodes/<file> -> /static/final/<file>"""
+    """Return public URL for final audio file (basename only)."""
     if not path:
         return None
-    base = os.path.basename(path)
-    return f"/static/final/{base}"
+    return f"/static/final/{os.path.basename(str(path))}"
 
 def _cover_url_for(path: Optional[str]) -> Optional[str]:
-    """Map a stored local cover path to /static/media/*, or passthrough if HTTP(S)."""
+    """Return public URL for cover image (basename only) unless already an absolute URL."""
     if not path:
         return None
     p = str(path)
     if p.lower().startswith(("http://", "https://")):
         return p
-    # Keep relative subfolders if any; normalize \ -> /
-    p = p.replace("\\", "/")
-    # if already looks like a filename, just mount under /static/media
-    return f"/static/media/{os.path.basename(p)}" if "/" not in p else f"/static/media/{p.split('/')[-1]}"
+    return f"/static/media/{os.path.basename(p)}"
 
 def _status_value(v: str) -> str:
     # Normalize string/enum to simple string for FE
@@ -247,7 +243,23 @@ def list_episodes(
         .all()
     )
     items = []
+    final_dir = os.path.join(os.getcwd(), 'final_episodes')
+    media_dir = os.path.join(os.getcwd(), 'media_uploads')
     for e in eps:
+        final_exists = False
+        cover_exists = False
+        try:
+            if e.final_audio_path:
+                candidate = os.path.join(final_dir, os.path.basename(str(e.final_audio_path)))
+                final_exists = os.path.isfile(candidate)
+            if e.cover_path and not str(e.cover_path).lower().startswith(('http://','https://')):
+                candidate = os.path.join(media_dir, os.path.basename(str(e.cover_path)))
+                cover_exists = os.path.isfile(candidate)
+            elif e.cover_path:
+                # absolute URL we can't verify locally
+                cover_exists = True
+        except Exception:
+            pass
         items.append({
             "id": str(e.id),
             "title": e.title,
@@ -255,10 +267,57 @@ def list_episodes(
             "processed_at": e.processed_at.isoformat() if getattr(e, "processed_at", None) else None,
             "final_audio_url": _final_url_for(e.final_audio_path),
             "cover_url": _cover_url_for(e.cover_path),
+            "description": getattr(e, "show_notes", None) or "",
             "spreaker_episode_id": getattr(e, "spreaker_episode_id", None),
             "is_published_to_spreaker": bool(getattr(e, "is_published_to_spreaker", False)),
+            "final_audio_exists": final_exists,
+            "cover_exists": cover_exists,
+            "cover_path": e.cover_path,
+            "final_audio_basename": os.path.basename(e.final_audio_path) if e.final_audio_path else None,
         })
     return {"items": items}
+
+
+@router.get("/{episode_id}/diagnostics", status_code=200)
+def episode_diagnostics(
+    episode_id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    import uuid as _uuid
+    try:
+        eid = _uuid.UUID(str(episode_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    ep = (
+        session.query(Episode)
+        .filter(Episode.id == eid, Episode.user_id == current_user.id)
+        .first()
+    )
+    if not ep:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    final_path = ep.final_audio_path
+    cover_path = ep.cover_path
+    final_exists = bool(final_path and (os.path.isfile(final_path) or os.path.isfile(os.path.join(os.getcwd(), final_path))))
+    cover_candidates = []
+    if cover_path:
+        cover_candidates = [
+            cover_path,
+            os.path.join(os.getcwd(), cover_path),
+            os.path.join(os.getcwd(), 'media_uploads', os.path.basename(cover_path)),
+        ]
+    cover_exists = any(os.path.isfile(c) for c in cover_candidates)
+    return {
+        "id": str(ep.id),
+        "final_audio_path": final_path,
+        "final_audio_url": _final_url_for(final_path),
+        "final_audio_exists": final_exists,
+        "cover_path": cover_path,
+        "cover_url": _cover_url_for(cover_path),
+        "cover_exists": cover_exists,
+        "cover_candidates": cover_candidates,
+        "cwd": os.getcwd(),
+    }
 
 
 @router.delete("/{episode_id}", status_code=status.HTTP_204_NO_CONTENT)

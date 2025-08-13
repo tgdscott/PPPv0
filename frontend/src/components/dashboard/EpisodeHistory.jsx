@@ -19,8 +19,10 @@ export default function EpisodeHistory({ token }) {
       if (!res.ok) throw new Error(`Failed to load episodes (${res.status})`);
       const data = await res.json();
 
-      // Sort newest-first (processed_at desc, then created order fallback)
-      const sorted = [...(Array.isArray(data) ? data : [])].sort((a, b) => {
+      // Expect shape { items: [...] }
+      const list = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+      // Sort newest-first
+      const sorted = [...list].sort((a, b) => {
         const da = a.processed_at ? new Date(a.processed_at) : 0;
         const db = b.processed_at ? new Date(b.processed_at) : 0;
         return (db - da) || 0;
@@ -62,12 +64,14 @@ export default function EpisodeHistory({ token }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {episodes.map((ep) => {
-          const coverUrl = `/api/episodes/${ep.id}/cover`;
-          const audioUrl = ep.final_audio_url || ep.final_audio_path || "";
+          const coverUrl = ep.cover_url || `/api/episodes/${ep.id}/cover`;
+          const audioRaw = ep.final_audio_url || ep.final_audio_path || "";
+          const audioUrl = audioRaw ? (audioRaw.startsWith('http') ? audioRaw : (audioRaw.startsWith('/') ? audioRaw : `/${audioRaw}`)) : '';
+          const missingAudio = audioUrl && ep.final_audio_exists === false;
+          const missingCover = ep.cover_url && ep.cover_exists === false;
           return (
             <Card key={ep.id} className="overflow-hidden">
-              <div className="w-full h-40 bg-gray-100 flex items-center justify-center">
-                {/* try to render cover, hide if 404 */}
+              <div className="w-full h-40 bg-gray-100 flex items-center justify-center relative">
                 <img
                   src={coverUrl}
                   alt="Cover"
@@ -81,6 +85,9 @@ export default function EpisodeHistory({ token }) {
                 <div className="hidden w-full h-full items-center justify-center text-gray-400">
                   <ImageOff className="w-8 h-8 mr-2"/> No cover
                 </div>
+                {missingCover && (
+                  <div className="absolute top-1 left-1 bg-red-600 text-white text-xs px-2 py-1 rounded">No Cover File</div>
+                )}
               </div>
               <CardHeader>
                 <CardTitle className="text-lg">{ep.title || "Untitled Episode"}</CardTitle>
@@ -91,9 +98,12 @@ export default function EpisodeHistory({ token }) {
                   <p className="text-sm text-gray-600 line-clamp-3">{ep.description}</p>
                 )}
                 {audioUrl ? (
-                  <audio controls src={audioUrl} className="w-full">
-                    Your browser does not support the audio element.
-                  </audio>
+                  <div>
+                    <audio controls src={audioUrl} className="w-full" onError={(e)=>{e.currentTarget.insertAdjacentHTML('afterend', '<div class=\"text-xs text-red-600 mt-1\">Audio failed to load</div>')}}>
+                      Your browser does not support the audio element.
+                    </audio>
+                    {missingAudio && <div className="text-xs text-red-600 mt-1">File missing on server</div>}
+                  </div>
                 ) : (
                   <div className="text-gray-500 text-sm flex items-center"><Play className="w-4 h-4 mr-2"/> No audio available</div>
                 )}

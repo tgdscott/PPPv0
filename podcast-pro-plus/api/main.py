@@ -7,6 +7,9 @@ from api.exceptions import install_exception_handlers
 from api.middleware.request_id import RequestIDMiddleware
 import os
 from pathlib import Path
+from sqlalchemy.orm import Session as _Session
+from api.core.database import get_session
+from api.models.podcast import Episode
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +24,35 @@ MEDIA_DIR = APP_ROOT / "media_uploads"
 FINAL_DIR.mkdir(parents=True, exist_ok=True)
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
+def _normalize_episode_paths():
+    session: _Session = next(get_session())
+    try:
+        eps = session.query(Episode).limit(5000).all()
+        changed = 0
+        for e in eps:
+            c = False
+            if e.final_audio_path:
+                base = os.path.basename(str(e.final_audio_path))
+                if base != e.final_audio_path:
+                    e.final_audio_path = base
+                    c = True
+            if e.cover_path and not str(e.cover_path).lower().startswith(("http://","https://")):
+                base = os.path.basename(str(e.cover_path))
+                if base != e.cover_path:
+                    e.cover_path = base
+                    c = True
+            if c:
+                session.add(e)
+                changed += 1
+        if changed:
+            session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
+
 app = FastAPI(title="Podcast Pro Plus API")
+_normalize_episode_paths()
 app.include_router(media_upload_alias_router)
 app.include_router(episodes_publish_alias_router)
 app.add_middleware(RequestIDMiddleware)

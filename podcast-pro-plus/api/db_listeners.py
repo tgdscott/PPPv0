@@ -1,11 +1,8 @@
 import uuid
 from sqlalchemy import event
 
-try:
-    # Adjust the import path if your models live elsewhere
-    from api.models import Episode  # type: ignore
-except Exception as e:  # pragma: no cover
-    raise RuntimeError("Update db_listeners import to your Episode model") from e
+# Import Episode directly from its module to avoid relying on pkg __init__ exports.
+from api.models.podcast import Episode  # type: ignore
 
 def _to_uuid(val):
     if val is None:
